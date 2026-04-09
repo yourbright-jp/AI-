@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI音声面接システム</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans','Noto Sans JP',system-ui,sans-serif;background:#080b12;color:#e8ecf4;min-height:100vh}
+input:focus,textarea:focus{outline:none}
+::placeholder{color:rgba(255,255,255,.2)}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+audio{filter:invert(.85) hue-rotate(180deg);border-radius:8px;width:100%}
+@keyframes orbPulse{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.1);opacity:1}}
+@keyframes waveBar{from{height:5px}to{height:20px}}
+@keyframes micPulse{0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.25)}50%{box-shadow:0 0 0 12px rgba(248,113,113,0)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes recBlink{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+const FIXED_EMAIL = "nguyen.thi.hong@yourbright.co.jp";
+const API_KEY_STORE = "ai_mensetsu_key";
+
+const POS = [
+  { id:"kaigo", label:"介護", icon:"🏥", ja:"介護職" },
+  { id:"kensetsu", label:"建設", icon:"🏗️", ja:"建設業" },
+  { id:"inshoku", label:"飲食", icon:"🍽️", ja:"飲食業" },
+  { id:"kikai", label:"機械", icon:"⚙️", ja:"機械・製造業" },
+  { id:"other", label:"その他", icon:"📋", ja:"その他" },
+];
+
+const QS = {
+  kaigo:[
+    {q:"どのぐらい日本にいますか。",t:"在日期間"},{q:"日本の生活は大変なことがありますか。",t:"生活適応"},
+    {q:"介護の仕事をしている友達はいますか。",t:"介護知識"},{q:"介護の仕事は何かを知っていますか。",t:"介護理解"},
+    {q:"なんで介護の仕事をやりたいですか。",t:"志望動機"},{q:"デイサービスのことは何かを知っていますか。",t:"業務理解"},
+    {q:"デイサービスは夜勤がないですが、それでも大丈夫ですか。",t:"勤務条件"},
+    {q:"介護の仕事について大変さは分かりますか。",t:"覚悟"},{q:"介護の仕事について楽しいことは分かりますか。",t:"やりがい"},
+    {q:"今の仕事では日本語で書いたりしていますか。",t:"日本語力"},
+    {q:"今の仕事ではパソコンやタブレットなど使っていますか。",t:"ITスキル"},
+    {q:"一時帰国の予定はありますか。",t:"勤務予定"},{q:"宗教は何ですか。",t:"宗教"},
+    {q:"職場でお祈りはやっていますか。",t:"宗教対応"},
+    {q:"こちらにお祈りはできませんが、それでも大丈夫ですか。",t:"宗教確認",cond:"prayer"},
+    {q:"あなたの短所と長所を教えてください。",t:"自己分析"},
+    {q:"__RESUME__",t:"職歴確認",dyn:true},
+  ],
+  kensetsu:[
+    {q:"どのぐらい日本にいますか。",t:"在日期間"},{q:"日本の生活は大変なことがありますか。",t:"生活適応"},
+    {q:"建設の仕事の経験はありますか。どんな作業をしましたか。",t:"経験"},{q:"なんで建設の仕事をやりたいですか。",t:"志望動機"},
+    {q:"体力に自信はありますか。",t:"体力"},{q:"高い所での作業は大丈夫ですか。",t:"適性"},
+    {q:"安全についてどう思いますか。",t:"安全意識"},{q:"今の仕事では日本語で書いたりしていますか。",t:"日本語力"},
+    {q:"一時帰国の予定はありますか。",t:"勤務予定"},{q:"あなたの短所と長所を教えてください。",t:"自己分析"},
+  ],
+  inshoku:[
+    {q:"どのぐらい日本にいますか。",t:"在日期間"},{q:"日本の生活は大変なことがありますか。",t:"生活適応"},
+    {q:"飲食店で働いた経験はありますか。どんな仕事をしましたか。",t:"経験"},{q:"なんで飲食の仕事をやりたいですか。",t:"志望動機"},
+    {q:"お客さんとの接客で大切なことは何だと思いますか。",t:"接客意識"},{q:"忙しい時間帯に対応できますか。",t:"耐性"},
+    {q:"食べ物のアレルギーや宗教上食べられないものはありますか。",t:"条件確認"},
+    {q:"今の仕事では日本語で書いたりしていますか。",t:"日本語力"},
+    {q:"一時帰国の予定はありますか。",t:"勤務予定"},{q:"あなたの短所と長所を教えてください。",t:"自己分析"},
+  ],
+  kikai:[
+    {q:"どのぐらい日本にいますか。",t:"在日期間"},{q:"日本の生活は大変なことがありますか。",t:"生活適応"},
+    {q:"機械や製造の仕事の経験はありますか。どんな機械を使いましたか。",t:"経験"},{q:"なんで機械の仕事をやりたいですか。",t:"志望動機"},
+    {q:"細かい作業は得意ですか。",t:"適性"},{q:"安全についてどう思いますか。",t:"安全意識"},
+    {q:"図面を読むことはできますか。",t:"スキル"},{q:"今の仕事では日本語で書いたりしていますか。",t:"日本語力"},
+    {q:"一時帰国の予定はありますか。",t:"勤務予定"},{q:"あなたの短所と長所を教えてください。",t:"自己分析"},
+  ],
+  other:[
+    {q:"どのぐらい日本にいますか。",t:"在日期間"},{q:"日本の生活は大変なことがありますか。",t:"生活適応"},
+    {q:"今までどんな仕事をしましたか。",t:"経験"},{q:"なんでこの仕事をやりたいですか。",t:"志望動機"},
+    {q:"今の仕事では日本語で書いたりしていますか。",t:"日本語力"},
+    {q:"今の仕事ではパソコンやタブレットなど使っていますか。",t:"ITスキル"},
+    {q:"一時帰国の予定はありますか。",t:"勤務予定"},{q:"あなたの短所と長所を教えてください。",t:"自己分析"},
+  ],
+};
+
+const DEF_RQ = "履歴書を見ると、何社か経験がありますが、それぞれの仕事内容と転職の理由を教えてください。";
+const CK = [{k:"japanese",l:"日本語力",i:"🗾"},{k:"motivation",l:"志望動機",i:"💪"},{k:"understanding",l:"介護理解度",i:"🏥"},{k:"adaptability",l:"適応力",i:"🔄"},{k:"communication",l:"コミュニケーション力",i:"💬"}];
+const CO = [{k:"japanese",l:"日本語力",i:"🗾"},{k:"motivation",l:"志望動機",i:"💪"},{k:"experience",l:"経験・スキル",i:"📋"},{k:"adaptability",l:"適応力",i:"🔄"},{k:"communication",l:"コミュニケーション力",i:"💬"}];
+
+/* ═══ TTS ═══ */
+function tts(text){
+  return new Promise(res=>{
+    if(!("speechSynthesis" in window)){res();return}
+    window.speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);u.lang="ja-JP";u.rate=0.88;u.pitch=0.95;
+    const v=window.speechSynthesis.getVoices().find(v=>v.lang.startsWith("ja"));
+    if(v)u.voice=v;u.onend=res;u.onerror=res;window.speechSynthesis.speak(u);
+  });
+}
+
+/* ═══ STT Hook (FIXED) ═══ */
+const SRC=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+function useSTT(){
+  const ref=useRef(null),cbRef=useRef(null),[on,setOn]=useState(false),[ok]=useState(!!SRC);
+  const start=useCallback(cb=>{
+    if(!SRC||ref.current)return;cbRef.current=cb;
+    try{
+      const r=new SRC();r.lang="ja-JP";r.continuous=true;r.interimResults=true;r.maxAlternatives=1;
+      let acc="";
+      r.onstart=()=>setOn(true);
+      r.onresult=e=>{
+        let f=acc,im="";
+        for(let i=e.resultIndex;i<e.results.length;i++){
+          const t=e.results[i][0].transcript;
+          if(e.results[i].isFinal){f+=t;acc=f}else im+=t;
+        }
+        cbRef.current?.(f+im);
+      };
+      r.onerror=e=>{if(e.error==="not-allowed"||e.error==="service-not-allowed"){setOn(false);ref.current=null}};
+      r.onend=()=>{if(ref.current){try{r.start()}catch{setOn(false);ref.current=null}}else setOn(false)};
+      r.start();ref.current=r;
+    }catch{setOn(false)}
+  },[]);
+  const stop=useCallback(()=>{const r=ref.current;ref.current=null;if(r)try{r.stop()}catch{};setOn(false)},[]);
+  return{start,stop,on,ok};
+}
+
+/* ═══ Recorder Hook ═══ */
+function useRec(){
+  const mr=useRef(null),ch=useRef([]),[on,setOn]=useState(false),[blob,setBlob]=useState(null),[url,setUrl]=useState(null);
+  const go=useCallback(async()=>{
+    try{
+      const s=await navigator.mediaDevices.getUserMedia({audio:true});
+      const m=new MediaRecorder(s,{mimeType:MediaRecorder.isTypeSupported("audio/webm")?"audio/webm":"audio/mp4"});
+      ch.current=[];
+      m.ondataavailable=e=>{if(e.data.size>0)ch.current.push(e.data)};
+      m.onstop=()=>{const b=new Blob(ch.current,{type:m.mimeType});setBlob(b);setUrl(URL.createObjectURL(b));s.getTracks().forEach(t=>t.stop())};
+      m.start(1000);mr.current=m;setOn(true);
+    }catch(e){console.error("Mic denied:",e)}
+  },[]);
+  const end=useCallback(()=>{if(mr.current&&mr.current.state!=="inactive")mr.current.stop();mr.current=null;setOn(false)},[]);
+  const reset=useCallback(()=>{if(url)URL.revokeObjectURL(url);setBlob(null);setUrl(null);ch.current=[]},[url]);
+  return{go,end,reset,on,blob,url};
+}
+
+/* ═══ Helpers ═══ */
+function toB64(f){return new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(",")[1]);x.onerror=j;x.readAsDataURL(f)})}
+function toURL(f){return new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result);x.onerror=j;x.readAsDataURL(f)})}
+
+/* ═══ Colors ═══ */
+const C={bg:"#080b12",sf:"rgba(255,255,255,.025)",bd:"rgba(255,255,255,.07)",ac:"#3d8bfd",ad:"rgba(61,139,253,.12)",ag:"rgba(61,139,253,.2)",gn:"#34d399",am:"#fbbf24",rd:"#f87171",tl:"#2dd4bf",tx:"#e8ecf4",td:"rgba(255,255,255,.38)",tm:"rgba(255,255,255,.62)"};
+
+/* ═══ UI Bits ═══ */
+function SB({s}){const c=s>=4?C.gn:s>=3?C.am:C.rd;return<div style={{display:"flex",gap:3,alignItems:"center"}}>{[1,2,3,4,5].map(i=><div key={i} style={{width:28,height:6,borderRadius:3,background:i<=s?c:"rgba(255,255,255,.06)",transition:"all .5s",transitionDelay:`${i*70}ms`}}/>)}<span style={{marginLeft:8,fontSize:12,color:C.td}}>{s}/5</span></div>}
+
+function Orb({on,sz=88}){
+  return<div style={{width:sz,height:sz,position:"relative",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{position:"absolute",inset:-5,borderRadius:"50%",border:`2px solid ${on?C.ac:"rgba(255,255,255,.05)"}`,animation:on?"orbPulse 2s ease-in-out infinite":"none"}}/>
+    <div style={{width:"100%",height:"100%",borderRadius:"50%",background:on?`radial-gradient(circle at 38% 38%,${C.ac},#1e50a0)`:"rgba(255,255,255,.04)",boxShadow:on?`0 0 44px ${C.ag}`:"none",transition:"all .4s",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{display:"flex",gap:3,alignItems:"center",height:24}}>{[0,1,2,3,4].map(i=><div key={i} style={{width:3,borderRadius:2,background:on?"#fff":"rgba(255,255,255,.12)",height:on?undefined:6,animation:on?`waveBar .65s ease-in-out ${i*.08}s infinite alternate`:"none"}}/>)}</div>
+    </div>
+  </div>;
+}
+
+function Mic({on,click,dis,rec}){
+  return<button onClick={click} disabled={dis} style={{width:68,height:68,borderRadius:"50%",border:"none",background:on?`radial-gradient(circle at 38% 38%,${C.rd},#a03030)`:dis?"rgba(255,255,255,.03)":`radial-gradient(circle at 38% 38%,${C.gn},#1a7a50)`,boxShadow:on?"0 0 32px rgba(248,113,113,.3)":"none",cursor:dis?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .3s",animation:on?"micPulse 1.5s ease-in-out infinite":"none",position:"relative"}}>
+    <span style={{fontSize:26,filter:dis?"grayscale(1) opacity(.25)":"none"}}>{on?"⏹":"🎤"}</span>
+    {rec&&<div style={{position:"absolute",top:-2,right:-2,width:14,height:14,borderRadius:"50%",background:C.rd,border:`2px solid ${C.bg}`,animation:"recBlink 1s infinite"}}/>}
+  </button>;
+}
+
+/* ═══ MAIN ═══ */
+function App(){
+  const [ph,setPh]=useState(()=>localStorage.getItem(API_KEY_STORE)?"setup":"apikey");
+  const [key,setKey]=useState(()=>localStorage.getItem(API_KEY_STORE)||"");
+  const [keyErr,setKeyErr]=useState("");
+  const [pos,setPos]=useState(null);
+  const [nm,setNm]=useState("");
+
+  // Resume
+  const [rFile,setRF]=useState(null),[rPrev,setRP]=useState(null),[rTxt,setRT]=useState(""),[rB64,setRB]=useState(null),[rMT,setRMT]=useState(null),[rMode,setRM]=useState("none");
+  const fRef=useRef(null);
+
+  const [qi,setQi]=useState(0),[ans,setAns]=useState([]),[draft,setDraft]=useState(""),[spk,setSpk]=useState(false);
+  const [ev,setEv]=useState(null),[skipP,setSkipP]=useState(false),[fade,setFade]=useState(false),[sendSt,setSendSt]=useState("");
+  const dRef=useRef("");
+  const stt=useSTT();
+  const rec=useRec();
+
+  useEffect(()=>{if("speechSynthesis" in window){speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices()}setTimeout(()=>setFade(true),50)},[]);
+  useEffect(()=>{dRef.current=draft},[draft]);
+
+  const qs=pos?QS[pos]:[];
+  const crit=pos==="kaigo"?CK:CO;
+  const hasR=rB64||rTxt.trim();
+
+  const qTxt=useCallback(i=>{const q=qs[i];if(!q)return"";if(q.dyn&&hasR)return"履歴書を拝見しました。何社か経験されていますが、それぞれの仕事内容と転職の理由を教えてください。";if(q.dyn)return DEF_RQ;return q.q},[qs,hasR]);
+  const actQ=useCallback(()=>pos?QS[pos].filter(q=>!(q.cond==="prayer"&&skipP)):[] ,[pos,skipP]);
+
+  const callAI=async(msgs,extra={})=>{
+    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:msgs,...extra})});
+    return r.json();
+  };
+
+  // API Key
+  const saveKey=()=>{if(!key.trim().startsWith("sk-")){setKeyErr("APIキーは「sk-」で始まる必要があります");return}localStorage.setItem(API_KEY_STORE,key.trim());setKeyErr("");setPh("setup")};
+
+  // Resume
+  const onResume=async e=>{const f=e.target.files?.[0];if(!f)return;if(!f.type.startsWith("image/")&&f.type!=="application/pdf")return;setRF(f);setRM("file");try{setRB(await toB64(f));setRMT(f.type==="application/pdf"?"application/pdf":f.type);if(f.type.startsWith("image/"))setRP(await toURL(f));else setRP(null)}catch{setRF(null)}};
+  const clrR=()=>{setRF(null);setRP(null);setRT("");setRB(null);setRMT(null);setRM("none");if(fRef.current)fRef.current.value=""};
+
+  // Mic
+  const togMic=useCallback(()=>{if(stt.on)stt.stop();else stt.start(t=>setDraft(t))},[stt]);
+
+  // Flow
+  const spkQ=async i=>{const t=qTxt(i);if(!t)return;setSpk(true);await tts(t);setSpk(false)};
+  const begin=()=>{if(!pos||!nm.trim())return;setPh("interview");setQi(0);setAns([]);setDraft("");setSkipP(false);rec.go();setTimeout(()=>spkQ(0),800)};
+
+  const submit=()=>{
+    if(!draft.trim())return;stt.stop();
+    const cur=qs[qi],next=[...ans,{question:qTxt(qi),tag:cur.t,answer:draft}];
+    setAns(next);setDraft("");
+    let ni=qi+1;
+    if(pos==="kaigo"){
+      if(qi===12){const l=draft.toLowerCase();if(l.includes("ない")||l.includes("なし")||l.includes("không")){ni=15;setSkipP(true)}}
+      if(qi===13&&!skipP){const l=draft.toLowerCase();if(l.includes("ない")||l.includes("いいえ")||l.includes("しない")){ni=15;setSkipP(true)}}
+    }
+    if(ni<qs.length){setQi(ni);setTimeout(()=>spkQ(ni),500)}
+    else{rec.end();setPh("evaluating");doEval(next)}
+  };
+
+  const doEval=async all=>{
+    const pl=POS.find(p=>p.id===pos)?.ja,ik=pos==="kaigo";
+    let ri=rTxt.trim()?`\n\n【履歴書】\n${rTxt}\n上記も踏まえて評価。`:"";
+    const content=[];
+    if(rB64&&!rTxt.trim()){
+      if(rMT?.startsWith("image/"))content.push({type:"image",source:{type:"base64",media_type:rMT,data:rB64}});
+      else if(rMT==="application/pdf")content.push({type:"document",source:{type:"base64",media_type:"application/pdf",data:rB64}});
+    }
+    content.push({type:"text",text:`あなたは${pl}の採用面接官です。\n候補者名:${nm}\n応募職種:${pl}${ri}\n\n面接内容:\n${all.map((a,i)=>`Q${i+1}(${a.tag}):${a.question}\nA:${a.answer}`).join("\n\n")}\n\nJSON形式のみで回答:\n{"scores":{"japanese":1-5,"motivation":1-5,"${ik?"understanding":"experience"}":1-5,"adaptability":1-5,"communication":1-5},"overall":1-5,"summary":"総合評価3-4文","strengths":["強み1","強み2"],"improvements":["改善点1","改善点2"],"recommendation":"合格"or"保留"or"不合格","japanese_level":"N5〜N1","grammar_corrections":[{"original":"間違い","corrected":"正しい","explanation_vi":"Giải thích tiếng Việt"}]${hasR?',"resume_analysis":"履歴書照合2-3文"':""}}\n\n重要:grammar_correctionsで全文法ミスを修正し各修正にベトナム語説明を付ける`});
+    try{
+      const d=await callAI([{role:"user",content}]);
+      if(d.error)throw new Error(d.error.message);
+      setEv(JSON.parse(d.content.map(c=>c.text||"").join("").replace(/```json|```/g,"").trim()));
+    }catch(e){
+      console.error(e);
+      setEv({scores:{japanese:3,motivation:3,understanding:3,experience:3,adaptability:3,communication:3},overall:3,summary:"評価エラー: "+e.message,strengths:["—"],improvements:["—"],recommendation:"保留",japanese_level:"N4",grammar_corrections:[]});
+    }
+    setPh("result");
+  };
+
+  // Send
+  const send=async()=>{
+    setSendSt("sending");
+    try{
+      const r=ev.recommendation;
+      const body=`【AI面接評価レポート】\n\n候補者名: ${nm}\n応募職種: ${POS.find(p=>p.id===pos)?.ja}\n判定: ${r}\n総合スコア: ${ev.overall}/5\n日本語レベル: ${ev.japanese_level}\n\n■ 総合コメント\n${ev.summary}\n\n■ 強み\n${(ev.strengths||[]).map(s=>"・"+s).join("\n")}\n\n■ 改善点\n${(ev.improvements||[]).map(s=>"・"+s).join("\n")}${ev.resume_analysis?"\n\n■ 履歴書照合\n"+ev.resume_analysis:""}\n\n■ 文法修正\n${(ev.grammar_corrections||[]).map(c=>`✗ ${c.original}\n✓ ${c.corrected}\n💡 ${c.explanation_vi}`).join("\n\n")}\n\n■ 全回答記録\n${ans.map((a,i)=>`Q${i+1}(${a.tag}): ${a.question}\nA: ${a.answer}`).join("\n\n")}`;
+
+      // Download report
+      const rb=new Blob([body],{type:"text/plain;charset=utf-8"});
+      const a1=document.createElement("a");a1.href=URL.createObjectURL(rb);
+      a1.download=`面接結果_${nm}_${new Date().toISOString().slice(0,10)}.txt`;a1.click();
+
+      // Download audio
+      if(rec.url){
+        const a2=document.createElement("a");a2.href=rec.url;
+        a2.download=`面接録音_${nm}_${new Date().toISOString().slice(0,10)}.webm`;a2.click();
+      }
+
+      // Open mail client
+      setTimeout(()=>{
+        const subj=encodeURIComponent(`【面接結果】${nm}様 - ${POS.find(p=>p.id===pos)?.ja} - ${r}`);
+        const mailBody=encodeURIComponent(body.slice(0,1800)+"\n\n※ 詳細は添付のテキストファイルをご確認ください。\n※ 録音ファイルも別途添付してください。");
+        window.open(`mailto:${FIXED_EMAIL}?subject=${subj}&body=${mailBody}`,"_blank");
+      },500);
+
+      setSendSt("done");
+    }catch(e){console.error(e);setSendSt("error")}
+  };
+
+  const restart=()=>{
+    speechSynthesis?.cancel();stt.stop();rec.end();rec.reset();
+    setPh("setup");setPos(null);setNm("");setQi(0);setAns([]);setDraft("");setEv(null);setSkipP(false);clrR();setSendSt("");
+  };
+
+  // Styles
+  const sh={minHeight:"100vh",background:C.bg,color:C.tx,fontFamily:"'DM Sans','Noto Sans JP',system-ui,sans-serif",position:"relative",overflow:"hidden",opacity:fade?1:0,transition:"opacity .5s"};
+  const cd={background:C.sf,border:`1px solid ${C.bd}`,borderRadius:18,padding:26};
+  const lb={fontSize:11,color:C.td,fontWeight:600,letterSpacing:2,textTransform:"uppercase",display:"block",marginBottom:10};
+  const ip={width:"100%",padding:"12px 14px",fontSize:15,background:"rgba(255,255,255,.03)",border:`1px solid ${C.bd}`,borderRadius:10,color:C.tx,fontFamily:"inherit",transition:"border-color .2s"};
+  const bg=<div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0}}>
+    <div style={{position:"absolute",top:"5%",right:"3%",width:400,height:400,borderRadius:"50%",background:"radial-gradient(circle,rgba(61,139,253,.05) 0%,transparent 65%)"}}/>
+    <div style={{position:"absolute",bottom:"8%",left:"5%",width:300,height:300,borderRadius:"50%",background:"radial-gradient(circle,rgba(52,211,153,.04) 0%,transparent 65%)"}}/>
+  </div>;
+  const fo=e=>e.target.style.borderColor=C.ac,bl=e=>e.target.style.borderColor=C.bd;
+  const pbtn=ok=>({width:"100%",padding:15,borderRadius:12,border:"none",background:ok?`linear-gradient(135deg,${C.ac},#1e50a0)`:"rgba(255,255,255,.04)",color:ok?"#fff":"rgba(255,255,255,.2)",fontSize:15,fontWeight:600,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:ok?`0 6px 20px ${C.ag}`:"none"});
+
+  /* ═══ API KEY ═══ */
+  if(ph==="apikey")return(
+    <div style={sh}>{bg}
+      <div style={{position:"relative",zIndex:1,maxWidth:480,margin:"0 auto",padding:"80px 24px"}}>
+        <div style={{textAlign:"center",marginBottom:40,animation:"fadeUp .6s"}}>
+          <div style={{width:52,height:52,borderRadius:13,margin:"0 auto 16px",background:`linear-gradient(135deg,${C.ac},#1e50a0)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 6px 28px ${C.ag}`,fontSize:24}}>🔑</div>
+          <h1 style={{fontSize:22,fontWeight:600}}>APIキー設定</h1>
+          <p style={{color:C.td,fontSize:13,marginTop:8,lineHeight:1.6}}>Anthropic APIキーを入力してください。<br/><a href="https://console.anthropic.com/" target="_blank" rel="noopener" style={{color:C.ac,textDecoration:"none"}}>console.anthropic.com</a> で取得できます。</p>
+        </div>
+        <div style={{...cd,marginBottom:20,animation:"fadeUp .6s .1s both"}}>
+          <label style={lb}>APIキー</label>
+          <input type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..." style={ip} onFocus={fo} onBlur={bl} onKeyDown={e=>e.key==="Enter"&&saveKey()}/>
+          {keyErr&&<p style={{fontSize:12,color:C.rd,marginTop:8}}>⚠ {keyErr}</p>}
+          <p style={{fontSize:11,color:C.td,marginTop:10,lineHeight:1.5}}>※ ブラウザのローカルに保存。サーバーには送信されません。</p>
+        </div>
+        <button onClick={saveKey} style={{...pbtn(key.trim().startsWith("sk-")),animation:"fadeUp .6s .2s both"}}>保存して開始</button>
+      </div>
+    </div>
+  );
+
+  /* ═══ SETUP ═══ */
+  if(ph==="setup")return(
+    <div style={sh}>{bg}
+      <div style={{position:"relative",zIndex:1,maxWidth:560,margin:"0 auto",padding:"44px 24px"}}>
+        <div style={{textAlign:"center",marginBottom:36,animation:"fadeUp .6s"}}>
+          <div style={{width:52,height:52,borderRadius:13,margin:"0 auto 16px",background:`linear-gradient(135deg,${C.ac},#1e50a0)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 6px 28px ${C.ag}`,fontSize:24}}>🎙️</div>
+          <h1 style={{fontSize:24,fontWeight:600}}>AI音声面接システム</h1>
+          <p style={{color:C.td,fontSize:13,marginTop:6}}>AIが面接官として音声で質問・録音します</p>
+        </div>
+
+        <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .1s both"}}>
+          <label style={lb}>候補者名</label>
+          <input value={nm} onChange={e=>setNm(e.target.value)} placeholder="氏名を入力してください" style={ip} onFocus={fo} onBlur={bl}/>
+        </div>
+
+        {/* 送信先（固定表示） */}
+        <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .12s both"}}>
+          <label style={lb}>📧 結果送信先</label>
+          <div style={{padding:"10px 14px",borderRadius:10,background:"rgba(61,139,253,.06)",border:`1px solid ${C.ac}22`,fontSize:14,color:C.ac,fontWeight:500}}>{FIXED_EMAIL}</div>
+          <p style={{fontSize:11,color:C.td,marginTop:6}}>面接終了後、評価結果と録音がこのアドレスに送信されます。</p>
+        </div>
+
+        {/* 履歴書 */}
+        <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .15s both"}}>
+          <label style={lb}>📄 履歴書（任意）</label>
+          <div style={{display:"flex",gap:6,marginBottom:14}}>
+            {[{m:"none",l:"なし"},{m:"file",l:"📎 ファイル"},{m:"text",l:"✏️ テキスト"}].map(({m,l})=>
+              <button key={m} onClick={()=>{setRM(m);if(m==="none")clrR()}} style={{flex:1,padding:"8px 6px",borderRadius:8,border:`1px solid ${rMode===m?C.ac+"55":C.bd}`,background:rMode===m?C.ad:"transparent",color:rMode===m?C.ac:C.td,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+            )}
+          </div>
+          {rMode==="file"&&(!rFile?
+            <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:16,borderRadius:12,border:`2px dashed ${C.bd}`,cursor:"pointer"}}>
+              <span style={{fontSize:24}}>📎</span><span style={{fontSize:13,color:C.tm}}>画像/PDFを選択</span>
+              <input ref={fRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={onResume} style={{display:"none"}}/>
+            </label>
+          :<div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderRadius:10,background:"rgba(52,211,153,.08)",border:`1px solid ${C.gn}33`}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}><span>✅</span><span style={{fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rFile.name}</span></div>
+              <button onClick={clrR} style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.bd}`,background:"rgba(255,255,255,.05)",color:C.td,fontSize:11,cursor:"pointer"}}>削除</button>
+            </div>
+            {rPrev&&<div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:`1px solid ${C.bd}`}}><img src={rPrev} alt="CV" style={{width:"100%",maxHeight:250,objectFit:"contain",background:"#fff"}}/></div>}
+          </div>)}
+          {rMode==="text"&&<textarea value={rTxt} onChange={e=>setRT(e.target.value)} placeholder={"職歴を入力\n例：2020年〜2022年：○○株式会社"} rows={5} style={{...ip,resize:"vertical",fontSize:13,lineHeight:1.7}} onFocus={fo} onBlur={bl}/>}
+        </div>
+
+        <div style={{...cd,marginBottom:24,animation:"fadeUp .6s .2s both"}}>
+          <label style={lb}>応募職種</label>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {POS.map(p=>{const s=pos===p.id;return<button key={p.id} onClick={()=>setPos(p.id)} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:12,border:`1px solid ${s?C.ac+"55":C.bd}`,background:s?C.ad:"transparent",color:s?C.tx:C.tm,cursor:"pointer",fontFamily:"inherit",fontSize:14,fontWeight:500,textAlign:"left"}}><span style={{fontSize:22,width:32,textAlign:"center"}}>{p.icon}</span><span>{p.label}</span></button>})}
+          </div>
+        </div>
+
+        <button onClick={begin} disabled={!pos||!nm.trim()} style={{...pbtn(pos&&nm.trim()),animation:"fadeUp .6s .3s both"}}>🎙️ 面接を開始する（録音開始）</button>
+        {!stt.ok&&<p style={{textAlign:"center",color:C.am,fontSize:12,marginTop:12}}>⚠ 音声認識非対応。テキスト入力で回答できます。</p>}
+        <p style={{textAlign:"center",color:C.td,fontSize:11,marginTop:10,lineHeight:1.5}}>※ マイクのアクセス許可が必要です。「許可」を押してください。<br/>※ 面接全体が録音されます。</p>
+        <div style={{textAlign:"center",marginTop:16}}><button onClick={()=>{localStorage.removeItem(API_KEY_STORE);setKey("");setPh("apikey")}} style={{background:"none",border:"none",color:C.td,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>APIキーを変更</button></div>
+      </div>
+    </div>
+  );
+
+  /* ═══ INTERVIEW ═══ */
+  if(ph==="interview"){
+    const act=actQ(),cnt=ans.length,prog=(cnt/act.length)*100;
+    return(
+      <div style={sh}>{bg}
+        <div style={{position:"relative",zIndex:1,maxWidth:620,margin:"0 auto",padding:"32px 24px"}}>
+          {rec.on&&<div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:16}}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:C.rd,animation:"recBlink 1s infinite"}}/><span style={{fontSize:12,color:C.rd,fontWeight:600}}>録音中</span>
+          </div>}
+          <div style={{marginBottom:24}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
+              <span style={{fontSize:12,color:C.td}}>質問 {cnt+1}/{act.length}</span>
+              <div style={{display:"flex",gap:6}}>
+                {hasR&&qs[qi]?.dyn&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:12,background:"rgba(52,211,153,.1)",color:C.gn,fontWeight:600}}>📄</span>}
+                <span style={{fontSize:11,padding:"3px 10px",borderRadius:16,background:C.ad,color:C.ac,fontWeight:600}}>{qs[qi]?.t}</span>
+              </div>
+            </div>
+            <div style={{height:2,background:"rgba(255,255,255,.04)",borderRadius:1}}><div style={{height:"100%",width:`${Math.min(prog,100)}%`,borderRadius:1,background:`linear-gradient(90deg,${C.ac},${C.tl})`,transition:"width .5s"}}/></div>
+          </div>
+
+          <div style={{...cd,textAlign:"center",marginBottom:18,animation:"fadeUp .4s"}}>
+            <div style={{marginBottom:18}}><Orb on={spk}/></div>
+            <p style={{fontSize:17,lineHeight:1.85,color:"rgba(255,255,255,.88)",margin:"0 0 14px"}}>{qTxt(qi)}</p>
+            {!spk&&<button onClick={()=>spkQ(qi)} style={{padding:"6px 14px",borderRadius:8,background:C.ad,border:`1px solid ${C.ac}30`,color:C.ac,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>🔊 もう一度再生</button>}
+          </div>
+
+          <div style={cd}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <span style={{...lb,margin:0}}>回答</span>
+              {stt.on&&<span style={{fontSize:12,color:C.rd,fontWeight:500,animation:"fadeUp .3s"}}>● 音声認識中…</span>}
+            </div>
+            {stt.ok&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,marginBottom:14}}>
+              <Mic on={stt.on} click={togMic} dis={spk} rec={rec.on}/>
+              <span style={{fontSize:11,color:C.td}}>{stt.on?"話してください…もう一度タップで停止":"タップして音声入力"}</span>
+            </div>}
+            <textarea value={draft} onChange={e=>setDraft(e.target.value)} placeholder={stt.ok?"🎤 マイクで話す、またはここに入力…":"回答を入力…"} rows={4} style={{...ip,resize:"vertical",fontSize:14,lineHeight:1.75}} onFocus={fo} onBlur={bl}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
+              <span style={{fontSize:11,color:C.td}}>{draft.length}文字</span>
+              <button onClick={submit} disabled={!draft.trim()} style={{padding:"10px 22px",borderRadius:10,border:"none",background:draft.trim()?`linear-gradient(135deg,${C.ac},#1e50a0)`:"rgba(255,255,255,.04)",color:draft.trim()?"#fff":"rgba(255,255,255,.2)",fontSize:14,fontWeight:600,cursor:draft.trim()?"pointer":"not-allowed",fontFamily:"inherit"}}>{qi<qs.length-1?"次の質問 →":"面接を終了 ✓"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ═══ EVALUATING ═══ */
+  if(ph==="evaluating")return(
+    <div style={{...sh,display:"flex",alignItems:"center",justifyContent:"center"}}>{bg}
+      <div style={{textAlign:"center",zIndex:1,animation:"fadeUp .5s"}}>
+        <div style={{width:90,height:90,borderRadius:"50%",margin:"0 auto 24px",background:`conic-gradient(${C.ac},${C.tl},${C.ac})`,animation:"spin 1.6s linear infinite",padding:3}}>
+          <div style={{width:"100%",height:"100%",borderRadius:"50%",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:32}}>📝</div>
+        </div>
+        <h2 style={{fontSize:18,fontWeight:600,margin:"0 0 6px"}}>AIが評価中…</h2>
+        <p style={{color:C.td,fontSize:13}}>{hasR?"履歴書読み取り＆回答分析中":"回答と日本語を分析中"}</p>
+      </div>
+    </div>
+  );
+
+  /* ═══ RESULT ═══ */
+  if(ph==="result"&&ev){
+    const r=ev.recommendation,rc=r==="合格"?C.gn:r==="保留"?C.am:C.rd,corr=ev.grammar_corrections||[];
+    return(
+      <div style={sh}>{bg}
+        <div style={{position:"relative",zIndex:1,maxWidth:640,margin:"0 auto",padding:"36px 24px 60px"}}>
+          <div style={{textAlign:"center",marginBottom:28,animation:"fadeUp .5s"}}><h1 style={{fontSize:21,fontWeight:600,margin:"0 0 4px"}}>面接評価レポート</h1><p style={{color:C.td,fontSize:13}}>{nm} — {POS.find(p=>p.id===pos)?.label}</p></div>
+
+          <div style={{...cd,textAlign:"center",marginBottom:14,borderColor:rc+"20",animation:"fadeUp .5s .1s both"}}>
+            <div style={{display:"inline-block",padding:"6px 24px",borderRadius:20,background:rc+"18",border:`1px solid ${rc}44`,color:rc,fontSize:17,fontWeight:700}}>判定：{r}</div>
+            <div style={{display:"flex",justifyContent:"center",gap:24,marginTop:14}}>
+              <div><div style={{fontSize:11,color:C.td,marginBottom:2}}>総合</div><div style={{fontSize:22,fontWeight:700}}>{ev.overall}/5</div></div>
+              <div><div style={{fontSize:11,color:C.td,marginBottom:2}}>日本語</div><div style={{fontSize:22,fontWeight:700,color:C.ac}}>{ev.japanese_level}</div></div>
+            </div>
+          </div>
+
+          <div style={{...cd,marginBottom:14,animation:"fadeUp .5s .2s both"}}>
+            <h3 style={{...lb,margin:"0 0 14px"}}>評価項目</h3>
+            {crit.map(c=><div key={c.k} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:13,color:C.tm}}>{c.i} {c.l}</span><SB s={ev.scores[c.k]||3}/></div>)}
+          </div>
+
+          <div style={{...cd,marginBottom:14,animation:"fadeUp .5s .3s both"}}><h3 style={{...lb,margin:"0 0 10px"}}>総合コメント</h3><p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:0}}>{ev.summary}</p></div>
+
+          {ev.resume_analysis&&<div style={{...cd,marginBottom:14,borderColor:C.tl+"18",animation:"fadeUp .5s .32s both"}}><h3 style={{fontSize:11,color:C.tl,margin:"0 0 10px",fontWeight:600,letterSpacing:2}}>📄 履歴書照合</h3><p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:0}}>{ev.resume_analysis}</p></div>}
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14,animation:"fadeUp .5s .35s both"}}>
+            <div style={{...cd,padding:18,borderColor:C.gn+"15"}}><h3 style={{fontSize:11,color:C.gn,margin:"0 0 10px",fontWeight:600}}>💪 強み</h3>{(ev.strengths||[]).map((s,i)=><p key={i} style={{fontSize:13,lineHeight:1.6,color:C.tm,margin:"0 0 4px"}}>· {s}</p>)}</div>
+            <div style={{...cd,padding:18,borderColor:C.am+"15"}}><h3 style={{fontSize:11,color:C.am,margin:"0 0 10px",fontWeight:600}}>📝 改善点</h3>{(ev.improvements||[]).map((s,i)=><p key={i} style={{fontSize:13,lineHeight:1.6,color:C.tm,margin:"0 0 4px"}}>· {s}</p>)}</div>
+          </div>
+
+          {corr.length>0&&<div style={{...cd,marginBottom:14,animation:"fadeUp .5s .4s both"}}>
+            <h3 style={{fontSize:11,color:C.tl,margin:"0 0 14px",fontWeight:600,letterSpacing:2}}>✏️ 文法修正</h3>
+            {corr.map((c,i)=><div key={i} style={{padding:"12px 14px",borderRadius:10,marginBottom:10,background:"rgba(255,255,255,.02)",border:`1px solid ${C.bd}`}}>
+              <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
+                <span style={{fontSize:12,padding:"2px 8px",borderRadius:6,background:"rgba(248,113,113,.12)",color:C.rd,textDecoration:"line-through"}}>{c.original}</span>
+                <span style={{color:C.td,fontSize:12}}>→</span>
+                <span style={{fontSize:12,padding:"2px 8px",borderRadius:6,background:"rgba(52,211,153,.12)",color:C.gn}}>{c.corrected}</span>
+              </div>
+              <p style={{fontSize:12,color:C.td,margin:0,lineHeight:1.6,fontStyle:"italic"}}>💡 {c.explanation_vi}</p>
+            </div>)}
+          </div>}
+
+          {rec.url&&<div style={{...cd,marginBottom:14,animation:"fadeUp .5s .42s both"}}><h3 style={{fontSize:11,color:C.ac,margin:"0 0 12px",fontWeight:600,letterSpacing:2}}>🎧 面接録音</h3><audio controls src={rec.url}/></div>}
+
+          <div style={{...cd,marginBottom:14,animation:"fadeUp .5s .45s both"}}>
+            <h3 style={{fontSize:11,color:C.ac,margin:"0 0 12px",fontWeight:600,letterSpacing:2}}>📧 結果を送信</h3>
+            <p style={{fontSize:12,color:C.td,marginBottom:6}}>送信先: <strong style={{color:C.ac}}>{FIXED_EMAIL}</strong></p>
+            <p style={{fontSize:12,color:C.td,marginBottom:12,lineHeight:1.6}}>レポート(.txt)と録音(.webm)をダウンロードし、メールアプリを開きます。<br/>ダウンロードしたファイルをメールに添付してください。</p>
+            <button onClick={send} disabled={sendSt==="sending"} style={{
+              width:"100%",padding:14,borderRadius:12,border:"none",
+              background:sendSt==="done"?"rgba(52,211,153,.15)":sendSt==="sending"?"rgba(255,255,255,.04)":`linear-gradient(135deg,${C.ac},#1e50a0)`,
+              color:sendSt==="done"?C.gn:sendSt==="sending"?C.td:"#fff",
+              fontSize:14,fontWeight:600,cursor:sendSt==="sending"?"wait":"pointer",fontFamily:"inherit",
+            }}>{sendSt===""?"📧 ダウンロード＆メール送信":sendSt==="sending"?"処理中…":sendSt==="done"?"✅ 完了！メールアプリを確認してください":"⚠ エラー"}</button>
+          </div>
+
+          <button onClick={restart} style={{width:"100%",padding:13,borderRadius:12,border:`1px solid ${C.bd}`,background:"transparent",color:C.tm,fontSize:14,cursor:"pointer",fontFamily:"inherit",fontWeight:500,animation:"fadeUp .5s .5s both"}}>↻ 新しい面接</button>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
