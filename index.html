@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI音声面接システム</title>
+<title>AI音声面接システム - YourBright</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -19,6 +19,7 @@ audio{filter:invert(.85) hue-rotate(180deg);border-radius:8px;width:100%}
 @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes recBlink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
 </style>
 </head>
 <body>
@@ -27,11 +28,26 @@ audio{filter:invert(.85) hue-rotate(180deg);border-radius:8px;width:100%}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
 <script type="text/babel">
-const { useState, useRef, useEffect, useCallback } = React;
+const { useState, useRef, useEffect, useCallback, useMemo } = React;
 
-const FIXED_EMAIL = "nguyen.thi.hong@yourbright.co.jp";
 const API_KEY_STORE = "ai_mensetsu_key";
 
+/* ═══ LANGUAGES ═══ */
+const LANGS = [
+  {id:"vi", label:"Tiếng Việt", flag:"🇻🇳", ja:"ベトナム語"},
+  {id:"en", label:"English", flag:"🇬🇧", ja:"英語"},
+  {id:"id", label:"Bahasa Indonesia", flag:"🇮🇩", ja:"インドネシア語"},
+  {id:"my", label:"မြန်မာဘာသာ", flag:"🇲🇲", ja:"ミャンマー語"},
+  {id:"km", label:"ភាសាខ្មែរ", flag:"🇰🇭", ja:"クメール語"},
+  {id:"zh", label:"中文", flag:"🇨🇳", ja:"中国語"},
+  {id:"th", label:"ภาษาไทย", flag:"🇹🇭", ja:"タイ語"},
+  {id:"mn", label:"Монгол хэл", flag:"🇲🇳", ja:"モンゴル語"},
+];
+
+const LANG_LABEL = {};
+LANGS.forEach(l => { LANG_LABEL[l.id] = l.ja; });
+
+/* ═══ JOB POSITIONS ═══ */
 const POS = [
   { id:"kaigo", label:"介護", icon:"🏥", ja:"介護職" },
   { id:"kensetsu", label:"建設", icon:"🏗️", ja:"建設業" },
@@ -40,20 +56,49 @@ const POS = [
   { id:"other", label:"その他", icon:"📋", ja:"その他" },
 ];
 
+/* ═══ QUESTIONS (standard) ═══ */
 const QS = {
   kaigo:[
-    {q:"どのぐらい日本にいますか。",t:"在日期間"},{q:"日本の生活は大変なことがありますか。",t:"生活適応"},
-    {q:"介護の仕事をしている友達はいますか。",t:"介護知識"},{q:"介護の仕事は何かを知っていますか。",t:"介護理解"},
-    {q:"なんで介護の仕事をやりたいですか。",t:"志望動機"},{q:"デイサービスのことは何かを知っていますか。",t:"業務理解"},
-    {q:"デイサービスは夜勤がないですが、それでも大丈夫ですか。",t:"勤務条件"},
-    {q:"介護の仕事について大変さは分かりますか。",t:"覚悟"},{q:"介護の仕事について楽しいことは分かりますか。",t:"やりがい"},
+    {q:"自己紹介をお願いします。",t:"自己紹介"},
+    {q:"家族構成を教えてください。",t:"家族構成"},
+    {q:"ご家族はあなたの日本就労についてどう考えていますか。",t:"家族理解"},
+    {q:"日本にはいつ来ましたか。",t:"来日時期"},
+    {q:"日本にはどのぐらい住んでいますか。",t:"在日期間"},
+    {q:"来日後、どこに住んでいますか。",t:"居住地"},
+    {q:"日本での生活で大変なことはありますか。",t:"生活適応"},
+    {q:"これまでどのような仕事をしてきましたか。",t:"職歴"},
     {q:"今の仕事では日本語で書いたりしていますか。",t:"日本語力"},
-    {q:"今の仕事ではパソコンやタブレットなど使っていますか。",t:"ITスキル"},
-    {q:"一時帰国の予定はありますか。",t:"勤務予定"},{q:"宗教は何ですか。",t:"宗教"},
-    {q:"職場でお祈りはやっていますか。",t:"宗教対応"},
-    {q:"こちらにお祈りはできませんが、それでも大丈夫ですか。",t:"宗教確認",cond:"prayer"},
+    {q:"パソコンやタブレットは使っていますか。",t:"ITスキル"},
+    {q:"なぜ介護の仕事をしたいと思いましたか。",t:"志望動機"},
+    {q:"介護の仕事についてどのような印象を持っていますか。",t:"介護印象"},
+    {q:"介護の仕事の内容を知っていますか。",t:"介護理解"},
+    {q:"介護の仕事をしている友達はいますか。",t:"介護知識"},
+    {q:"介護の仕事の大変さは理解していますか。",t:"覚悟"},
+    {q:"介護の仕事の楽しいことは何だと思いますか。",t:"やりがい"},
+    {q:"大変な仕事ですが、続けていけそうですか。",t:"継続意志"},
+    {q:"施設の種類について知っていますか。",t:"施設理解"},
+    {q:"夜勤がある場合でも大丈夫ですか。",t:"勤務条件"},
+    {q:"介護に関する資格は持っていますか。",t:"資格"},
+    {q:"今後資格を取得する予定はありますか。",t:"資格計画"},
+    {q:"どのくらいの期間で資格取得を目指しますか。",t:"資格目標"},
+    {q:"将来どのような仕事をしたいですか。",t:"将来展望"},
+    {q:"日本で長く働きたいですか。",t:"長期意志"},
+    {q:"介護福祉士を目指していますか。",t:"介護福祉士"},
+    {q:"将来、母国へ帰る予定はありますか。",t:"帰国予定"},
+    {q:"仕事をするうえで大切にしていることは何ですか。",t:"仕事観"},
+    {q:"忙しい環境でも前向きに働けますか。",t:"耐性"},
+    {q:"コミュニケーションを取ることは得意ですか。",t:"コミュニケーション"},
+    {q:"休みの日は何をしていますか。",t:"休日"},
+    {q:"趣味は何ですか。",t:"趣味"},
+    {q:"料理はできますか。",t:"料理"},
+    {q:"どんな旅行や遊びが好きですか。",t:"趣味嗜好"},
+    {q:"日本語はどのように勉強していますか。",t:"日本語学習"},
+    {q:"どうして今の会社を辞めますか。",t:"退職理由"},
+    {q:"一時帰国の予定はありますか。",t:"勤務予定"},
     {q:"あなたの短所と長所を教えてください。",t:"自己分析"},
-    {q:"__RESUME__",t:"職歴確認",dyn:true},
+    {q:"宗教は何ですか。",t:"宗教"},
+    {q:"職場でお祈りは必要ですか。",t:"宗教対応"},
+    {q:"お祈りができない場合でも問題ありませんか。",t:"宗教確認",cond:"prayer"},
   ],
   kensetsu:[
     {q:"どのぐらい日本にいますか。",t:"在日期間"},{q:"日本の生活は大変なことがありますか。",t:"生活適応"},
@@ -86,7 +131,6 @@ const QS = {
   ],
 };
 
-const DEF_RQ = "履歴書を見ると、何社か経験がありますが、それぞれの仕事内容と転職の理由を教えてください。";
 const CK = [{k:"japanese",l:"日本語力",i:"🗾"},{k:"motivation",l:"志望動機",i:"💪"},{k:"understanding",l:"介護理解度",i:"🏥"},{k:"adaptability",l:"適応力",i:"🔄"},{k:"communication",l:"コミュニケーション力",i:"💬"}];
 const CO = [{k:"japanese",l:"日本語力",i:"🗾"},{k:"motivation",l:"志望動機",i:"💪"},{k:"experience",l:"経験・スキル",i:"📋"},{k:"adaptability",l:"適応力",i:"🔄"},{k:"communication",l:"コミュニケーション力",i:"💬"}];
 
@@ -101,7 +145,7 @@ function tts(text){
   });
 }
 
-/* ═══ STT Hook (FIXED) ═══ */
+/* ═══ STT Hook ═══ */
 const SRC=window.SpeechRecognition||window.webkitSpeechRecognition||null;
 function useSTT(){
   const ref=useRef(null),cbRef=useRef(null),[on,setOn]=useState(false),[ok]=useState(!!SRC);
@@ -153,7 +197,7 @@ function toURL(f){return new Promise((r,j)=>{const x=new FileReader();x.onload=(
 /* ═══ Colors ═══ */
 const C={bg:"#080b12",sf:"rgba(255,255,255,.025)",bd:"rgba(255,255,255,.07)",ac:"#3d8bfd",ad:"rgba(61,139,253,.12)",ag:"rgba(61,139,253,.2)",gn:"#34d399",am:"#fbbf24",rd:"#f87171",tl:"#2dd4bf",tx:"#e8ecf4",td:"rgba(255,255,255,.38)",tm:"rgba(255,255,255,.62)"};
 
-/* ═══ UI Bits ═══ */
+/* ═══ UI Components ═══ */
 function SB({s}){const c=s>=4?C.gn:s>=3?C.am:C.rd;return<div style={{display:"flex",gap:3,alignItems:"center"}}>{[1,2,3,4,5].map(i=><div key={i} style={{width:28,height:6,borderRadius:3,background:i<=s?c:"rgba(255,255,255,.06)",transition:"all .5s",transitionDelay:`${i*70}ms`}}/>)}<span style={{marginLeft:8,fontSize:12,color:C.td}}>{s}/5</span></div>}
 
 function Orb({on,sz=88}){
@@ -172,7 +216,7 @@ function Mic({on,click,dis,rec}){
   </button>;
 }
 
-/* ═══ MAIN ═══ */
+/* ═══ MAIN APP ═══ */
 function App(){
   const [ph,setPh]=useState(()=>localStorage.getItem(API_KEY_STORE)?"setup":"apikey");
   const [key,setKey]=useState(()=>localStorage.getItem(API_KEY_STORE)||"");
@@ -180,10 +224,21 @@ function App(){
   const [pos,setPos]=useState(null);
   const [nm,setNm]=useState("");
 
-  // Resume
+  /* NEW: Language & Email */
+  const [lang,setLang]=useState("vi");
+  const [compEmail,setCompEmail]=useState("");
+
+  /* Resume */
   const [rFile,setRF]=useState(null),[rPrev,setRP]=useState(null),[rTxt,setRT]=useState(""),[rB64,setRB]=useState(null),[rMT,setRMT]=useState(null),[rMode,setRM]=useState("none");
   const fRef=useRef(null);
 
+  /* NEW: CV dynamic questions */
+  const [cvDynQs,setCvDynQs]=useState([]);
+  const [cvLoading,setCvLoading]=useState(false);
+  const [cvAnalyzed,setCvAnalyzed]=useState(false);
+
+  /* Interview state */
+  const [fullQs,setFullQs]=useState([]);
   const [qi,setQi]=useState(0),[ans,setAns]=useState([]),[draft,setDraft]=useState(""),[spk,setSpk]=useState(false);
   const [ev,setEv]=useState(null),[skipP,setSkipP]=useState(false),[fade,setFade]=useState(false),[sendSt,setSendSt]=useState("");
   const dRef=useRef("");
@@ -193,45 +248,152 @@ function App(){
   useEffect(()=>{if("speechSynthesis" in window){speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices()}setTimeout(()=>setFade(true),50)},[]);
   useEffect(()=>{dRef.current=draft},[draft]);
 
-  const qs=pos?QS[pos]:[];
   const crit=pos==="kaigo"?CK:CO;
   const hasR=rB64||rTxt.trim();
+  const langJa=LANG_LABEL[lang]||"ベトナム語";
+  const langObj=LANGS.find(l=>l.id===lang)||LANGS[0];
 
-  const qTxt=useCallback(i=>{const q=qs[i];if(!q)return"";if(q.dyn&&hasR)return"履歴書を拝見しました。何社か経験されていますが、それぞれの仕事内容と転職の理由を教えてください。";if(q.dyn)return DEF_RQ;return q.q},[qs,hasR]);
-  const actQ=useCallback(()=>pos?QS[pos].filter(q=>!(q.cond==="prayer"&&skipP)):[] ,[pos,skipP]);
-
+  /* ═══ Groq API (Free) ═══ */
   const callAI=async(msgs,extra={})=>{
-    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:msgs,...extra})});
-    return r.json();
+    const groqMsgs=msgs.map(m=>{
+      if(Array.isArray(m.content)){
+        const texts=m.content.filter(c=>c.type==="text").map(c=>c.text).join("\n");
+        return{role:m.role||"user",content:texts};
+      }
+      return{role:m.role||"user",content:m.content};
+    });
+    const r=await fetch("https://api.groq.com/openai/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${key}`},body:JSON.stringify({model:"llama-3.3-70b-versatile",max_tokens:2000,temperature:0.7,messages:groqMsgs})});
+    const d=await r.json();
+    if(d.error)return{error:d.error};
+    const text=d.choices?.[0]?.message?.content||"";
+    return{content:[{text}]};
   };
 
-  // API Key
-  const saveKey=()=>{if(!key.trim().startsWith("sk-")){setKeyErr("APIキーは「sk-」で始まる必要があります");return}localStorage.setItem(API_KEY_STORE,key.trim());setKeyErr("");setPh("setup")};
+  /* ═══ CV Analysis ═══ */
+  const analyzeCv=async()=>{
+    if(!key)return;
+    setCvLoading(true);
+    try{
+      const content=[];
+      if(rB64){
+        if(rMT?.startsWith("image/"))content.push({type:"image",source:{type:"base64",media_type:rMT,data:rB64}});
+        else if(rMT==="application/pdf")content.push({type:"document",source:{type:"base64",media_type:"application/pdf",data:rB64}});
+      }
+      if(rTxt.trim())content.push({type:"text",text:"履歴書内容:\n"+rTxt});
+      content.push({type:"text",text:`この履歴書を分析して、候補者の職歴に基づいた面接質問を生成してください。
 
-  // Resume
-  const onResume=async e=>{const f=e.target.files?.[0];if(!f)return;if(!f.type.startsWith("image/")&&f.type!=="application/pdf")return;setRF(f);setRM("file");try{setRB(await toB64(f));setRMT(f.type==="application/pdf"?"application/pdf":f.type);if(f.type.startsWith("image/"))setRP(await toURL(f));else setRP(null)}catch{setRF(null)}};
-  const clrR=()=>{setRF(null);setRP(null);setRT("");setRB(null);setRMT(null);setRM("none");if(fRef.current)fRef.current.value=""};
+特に以下に焦点を当ててください：
+1. 各会社での具体的な仕事内容について質問
+2. それぞれの会社を辞めた理由・転職理由
+3. 職歴の空白期間があればその理由
 
-  // Mic
+重要：
+- 質問は丁寧語で、面接官として自然な日本語で作成
+- 具体的な会社名・期間・業種に言及すること
+- 2〜4個の質問を生成
+
+JSON形式のみで回答：
+{"questions":[{"q":"質問文","t":"職歴確認"}]}`});
+
+      const d=await callAI([{role:"user",content}]);
+      if(d.error)throw new Error(d.error.message);
+      const parsed=JSON.parse(d.content.map(c=>c.text||"").join("").replace(/```json|```/g,"").trim());
+      setCvDynQs(parsed.questions||[]);
+      setCvAnalyzed(true);
+    }catch(e){
+      console.error("CV analysis error:",e);
+      setCvDynQs([{q:"履歴書を見ると、何社か経験がありますが、それぞれの仕事内容と転職の理由を教えてください。",t:"職歴確認"}]);
+      setCvAnalyzed(true);
+    }
+    setCvLoading(false);
+  };
+
+  /* ═══ API Key ═══ */
+  const saveKey=()=>{if(!key.trim().startsWith("gsk_")){setKeyErr("APIキーは「gsk_」で始まる必要があります");return}localStorage.setItem(API_KEY_STORE,key.trim());setKeyErr("");setPh("setup")};
+
+  /* ═══ Resume Handlers ═══ */
+  const onResume=async e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    if(!f.type.startsWith("image/")&&f.type!=="application/pdf")return;
+    setRF(f);setRM("file");setCvAnalyzed(false);setCvDynQs([]);
+    try{
+      setRB(await toB64(f));setRMT(f.type==="application/pdf"?"application/pdf":f.type);
+      if(f.type.startsWith("image/"))setRP(await toURL(f));else setRP(null);
+    }catch{setRF(null)}
+  };
+  const clrR=()=>{setRF(null);setRP(null);setRT("");setRB(null);setRMT(null);setRM("none");setCvDynQs([]);setCvAnalyzed(false);if(fRef.current)fRef.current.value=""};
+
+  /* Auto-analyze CV when file is uploaded */
+  useEffect(()=>{
+    if((rB64||rTxt.trim())&&key&&!cvAnalyzed&&!cvLoading){
+      const timer=setTimeout(()=>analyzeCv(),500);
+      return()=>clearTimeout(timer);
+    }
+  },[rB64,rTxt,key]);
+
+  /* ═══ Mic Toggle ═══ */
   const togMic=useCallback(()=>{if(stt.on)stt.stop();else stt.start(t=>setDraft(t))},[stt]);
 
-  // Flow
-  const spkQ=async i=>{const t=qTxt(i);if(!t)return;setSpk(true);await tts(t);setSpk(false)};
-  const begin=()=>{if(!pos||!nm.trim())return;setPh("interview");setQi(0);setAns([]);setDraft("");setSkipP(false);rec.go();setTimeout(()=>spkQ(0),800)};
+  /* ═══ Build Question List & Start ═══ */
+  const buildQs=()=>{
+    if(!pos)return[];
+    let base=[...QS[pos]];
+    if(cvDynQs.length>0){
+      // Insert CV questions before 宗教 section or at end
+      const relIdx=base.findIndex(q=>q.t==="宗教");
+      const insertAt=relIdx>0?relIdx:base.length;
+      base=[...base.slice(0,insertAt),...cvDynQs.map(q=>({q:q.q,t:q.t||"職歴確認",cvGen:true})),...base.slice(insertAt)];
+    }
+    return base;
+  };
 
+  const spkQ=async(i,qList)=>{
+    const ql=qList||fullQs;
+    const t=ql[i]?.q;if(!t)return;
+    setSpk(true);await tts(t);setSpk(false);
+  };
+
+  const begin=()=>{
+    if(!pos||!nm.trim())return;
+    const ql=buildQs();
+    setFullQs(ql);
+    setPh("interview");setQi(0);setAns([]);setDraft("");setSkipP(false);
+    rec.go();
+    setTimeout(()=>spkQ(0,ql),800);
+  };
+
+  /* ═══ Submit Answer ═══ */
   const submit=()=>{
     if(!draft.trim())return;stt.stop();
-    const cur=qs[qi],next=[...ans,{question:qTxt(qi),tag:cur.t,answer:draft}];
+    const cur=fullQs[qi],next=[...ans,{question:cur.q,tag:cur.t,answer:draft,cvGen:cur.cvGen||false}];
     setAns(next);setDraft("");
     let ni=qi+1;
+
+    // Prayer skip logic (kaigo only)
     if(pos==="kaigo"){
-      if(qi===12){const l=draft.toLowerCase();if(l.includes("ない")||l.includes("なし")||l.includes("không")){ni=15;setSkipP(true)}}
-      if(qi===13&&!skipP){const l=draft.toLowerCase();if(l.includes("ない")||l.includes("いいえ")||l.includes("しない")){ni=15;setSkipP(true)}}
+      const curTag=cur.t;
+      if(curTag==="宗教"){
+        const l=draft.toLowerCase();
+        if(l.includes("ない")||l.includes("なし")||l.includes("không")||l.includes("none")||l.includes("no")||l.includes("tidak")||l.includes("байхгүй")||l.includes("គ្មាន")||l.includes("没有")||l.includes("ไม่มี")){
+          // Skip prayer-related questions
+          while(ni<fullQs.length&&(fullQs[ni]?.cond==="prayer"||fullQs[ni]?.t==="宗教対応"))ni++;
+          setSkipP(true);
+        }
+      }
+      if(curTag==="宗教対応"&&!skipP){
+        const l=draft.toLowerCase();
+        if(l.includes("ない")||l.includes("いいえ")||l.includes("しない")||l.includes("không")||l.includes("no")||l.includes("tidak")||l.includes("байхгүй")||l.includes("គ្មាន")||l.includes("不要")||l.includes("ไม่")){
+          while(ni<fullQs.length&&fullQs[ni]?.cond==="prayer")ni++;
+          setSkipP(true);
+        }
+      }
     }
-    if(ni<qs.length){setQi(ni);setTimeout(()=>spkQ(ni),500)}
+
+    if(ni<fullQs.length){setQi(ni);setTimeout(()=>spkQ(ni),500)}
     else{rec.end();setPh("evaluating");doEval(next)}
   };
 
+  /* ═══ Evaluation ═══ */
   const doEval=async all=>{
     const pl=POS.find(p=>p.id===pos)?.ja,ik=pos==="kaigo";
     let ri=rTxt.trim()?`\n\n【履歴書】\n${rTxt}\n上記も踏まえて評価。`:"";
@@ -240,53 +402,145 @@ function App(){
       if(rMT?.startsWith("image/"))content.push({type:"image",source:{type:"base64",media_type:rMT,data:rB64}});
       else if(rMT==="application/pdf")content.push({type:"document",source:{type:"base64",media_type:"application/pdf",data:rB64}});
     }
-    content.push({type:"text",text:`あなたは${pl}の採用面接官です。\n候補者名:${nm}\n応募職種:${pl}${ri}\n\n面接内容:\n${all.map((a,i)=>`Q${i+1}(${a.tag}):${a.question}\nA:${a.answer}`).join("\n\n")}\n\nJSON形式のみで回答:\n{"scores":{"japanese":1-5,"motivation":1-5,"${ik?"understanding":"experience"}":1-5,"adaptability":1-5,"communication":1-5},"overall":1-5,"summary":"総合評価3-4文","strengths":["強み1","強み2"],"improvements":["改善点1","改善点2"],"recommendation":"合格"or"保留"or"不合格","japanese_level":"N5〜N1","grammar_corrections":[{"original":"間違い","corrected":"正しい","explanation_vi":"Giải thích tiếng Việt"}]${hasR?',"resume_analysis":"履歴書照合2-3文"':""}}\n\n重要:grammar_correctionsで全文法ミスを修正し各修正にベトナム語説明を付ける`});
+    content.push({type:"text",text:`あなたは${pl}の採用面接官です。
+候補者名:${nm}
+応募職種:${pl}
+候補者の母語:${langJa}${ri}
+
+面接内容:
+${all.map((a,i)=>`Q${i+1}(${a.tag}):${a.question}\nA:${a.answer}`).join("\n\n")}
+
+JSON形式のみで回答:
+{
+  "scores":{"japanese":1-5,"motivation":1-5,"${ik?"understanding":"experience"}":1-5,"adaptability":1-5,"communication":1-5},
+  "overall":1-5,
+  "summary":"総合評価（日本語）3-4文",
+  "summary_lang":"総合評価（${langJa}で書く）3-4文",
+  "strengths":["強み1（日本語）","強み2（日本語）"],
+  "strengths_lang":["強み1（${langJa}）","強み2（${langJa}）"],
+  "improvements":["改善点1（日本語）","改善点2（日本語）"],
+  "improvements_lang":["改善点1（${langJa}）","改善点2（${langJa}）"],
+  "recommendation":"合格"or"保留"or"不合格",
+  "japanese_level":"N5〜N1",
+  "grammar_corrections":[
+    {
+      "original":"候補者が言った間違った文",
+      "corrected":"正しい日本語",
+      "explanation_ja":"日本語での文法説明",
+      "explanation_lang":"${langJa}での文法説明"
+    }
+  ]${hasR?',"resume_analysis":"履歴書照合（日本語）2-3文","resume_analysis_lang":"履歴書照合（'+langJa+'）2-3文"':""}
+}
+
+重要:
+1. grammar_correctionsで全ての文法ミスを修正し、各修正に日本語と${langJa}の両方で説明を付ける
+2. summary_langとstrengths_langとimprovements_langは必ず${langJa}で書く
+3. 候補者が理解しやすいように丁寧に説明する`});
+
+    let evResult;
     try{
       const d=await callAI([{role:"user",content}]);
       if(d.error)throw new Error(d.error.message);
-      setEv(JSON.parse(d.content.map(c=>c.text||"").join("").replace(/```json|```/g,"").trim()));
+      evResult=JSON.parse(d.content.map(c=>c.text||"").join("").replace(/```json|```/g,"").trim());
+      setEv(evResult);
     }catch(e){
       console.error(e);
-      setEv({scores:{japanese:3,motivation:3,understanding:3,experience:3,adaptability:3,communication:3},overall:3,summary:"評価エラー: "+e.message,strengths:["—"],improvements:["—"],recommendation:"保留",japanese_level:"N4",grammar_corrections:[]});
+      evResult={scores:{japanese:3,motivation:3,understanding:3,experience:3,adaptability:3,communication:3},overall:3,summary:"評価エラー: "+e.message,summary_lang:"Error: "+e.message,strengths:["—"],strengths_lang:["—"],improvements:["—"],improvements_lang:["—"],recommendation:"保留",japanese_level:"N4",grammar_corrections:[]};
+      setEv(evResult);
     }
     setPh("result");
+    // Auto-send results via email after evaluation
+    if(compEmail.trim()){
+      setTimeout(()=>autoSend(evResult,all),500);
+    }
   };
 
-  // Send
+  /* ═══ Send Results ═══ */
+  const GAS_URL="https://script.google.com/macros/s/AKfycbwrQr1qSwkAYIr5_KLJjIPP-8mV0Xdq1mR2vEC3N9I_noKestPnNilFKg75rEZw-dmH/exec";
+  const GAS_TOKEN="yb_mensetsu_2026";
+
+  const blobToBase64=b=>new Promise((ok,ng)=>{const r=new FileReader();r.onload=()=>ok(r.result.split(",")[1]);r.onerror=ng;r.readAsDataURL(b)});
+
+  const autoSend=async(evData,allAns)=>{
+    setSendSt("sending");
+    try{
+      const r=evData.recommendation;
+      const body=`【AI面接評価レポート】\n\n候補者名: ${nm}\n応募職種: ${POS.find(p=>p.id===pos)?.ja}\n判定: ${r}\n総合スコア: ${evData.overall}/5\n日本語レベル: ${evData.japanese_level}\n\n■ 総合コメント\n${evData.summary}\n\n■ 強み\n${(evData.strengths||[]).map(s=>"・"+s).join("\n")}\n\n■ 改善点\n${(evData.improvements||[]).map(s=>"・"+s).join("\n")}${evData.resume_analysis?"\n\n■ 履歴書照合\n"+evData.resume_analysis:""}\n\n■ 文法修正\n${(evData.grammar_corrections||[]).map(c=>`✗ ${c.original}\n✓ ${c.corrected}\n📖 ${c.explanation_ja}\n💡 ${c.explanation_lang}`).join("\n\n")}\n\n■ 全回答記録\n${allAns.map((a,i)=>`Q${i+1}(${a.tag}): ${a.question}\nA: ${a.answer}`).join("\n\n")}`;
+      const targetEmail=compEmail.trim();
+      const dt=new Date().toISOString().slice(0,10);
+      const payload={
+        token:GAS_TOKEN,
+        to:targetEmail,
+        subject:`【面接結果】${nm}様 - ${POS.find(p=>p.id===pos)?.ja} - ${r}`,
+        body:body,
+        report_text:body,
+        report_filename:`面接結果_${nm}_${dt}.txt`
+      };
+      if(rec.blob){
+        const ext=rec.blob.type.includes("webm")?"webm":"mp4";
+        payload.recording_base64=await blobToBase64(rec.blob);
+        payload.recording_type=rec.blob.type;
+        payload.recording_filename=`面接録音_${nm}_${dt}.${ext}`;
+      }
+      const resp=await fetch(GAS_URL,{method:"POST",body:JSON.stringify(payload)});
+      const result=await resp.json();
+      if(!result.success)throw new Error(result.error||"送信失敗");
+      setSendSt("done");
+    }catch(e){console.error(e);setSendSt("error")}
+  };
+
   const send=async()=>{
     setSendSt("sending");
     try{
       const r=ev.recommendation;
-      const body=`【AI面接評価レポート】\n\n候補者名: ${nm}\n応募職種: ${POS.find(p=>p.id===pos)?.ja}\n判定: ${r}\n総合スコア: ${ev.overall}/5\n日本語レベル: ${ev.japanese_level}\n\n■ 総合コメント\n${ev.summary}\n\n■ 強み\n${(ev.strengths||[]).map(s=>"・"+s).join("\n")}\n\n■ 改善点\n${(ev.improvements||[]).map(s=>"・"+s).join("\n")}${ev.resume_analysis?"\n\n■ 履歴書照合\n"+ev.resume_analysis:""}\n\n■ 文法修正\n${(ev.grammar_corrections||[]).map(c=>`✗ ${c.original}\n✓ ${c.corrected}\n💡 ${c.explanation_vi}`).join("\n\n")}\n\n■ 全回答記録\n${ans.map((a,i)=>`Q${i+1}(${a.tag}): ${a.question}\nA: ${a.answer}`).join("\n\n")}`;
+      const body=`【AI面接評価レポート】\n\n候補者名: ${nm}\n応募職種: ${POS.find(p=>p.id===pos)?.ja}\n判定: ${r}\n総合スコア: ${ev.overall}/5\n日本語レベル: ${ev.japanese_level}\n\n■ 総合コメント\n${ev.summary}\n\n■ 強み\n${(ev.strengths||[]).map(s=>"・"+s).join("\n")}\n\n■ 改善点\n${(ev.improvements||[]).map(s=>"・"+s).join("\n")}${ev.resume_analysis?"\n\n■ 履歴書照合\n"+ev.resume_analysis:""}\n\n■ 文法修正\n${(ev.grammar_corrections||[]).map(c=>`✗ ${c.original}\n✓ ${c.corrected}\n📖 ${c.explanation_ja}\n💡 ${c.explanation_lang}`).join("\n\n")}\n\n■ 全回答記録\n${ans.map((a,i)=>`Q${i+1}(${a.tag}): ${a.question}\nA: ${a.answer}`).join("\n\n")}`;
 
-      // Download report
-      const rb=new Blob([body],{type:"text/plain;charset=utf-8"});
-      const a1=document.createElement("a");a1.href=URL.createObjectURL(rb);
-      a1.download=`面接結果_${nm}_${new Date().toISOString().slice(0,10)}.txt`;a1.click();
+      const targetEmail=compEmail.trim()||"";
+      const dt=new Date().toISOString().slice(0,10);
 
-      // Download audio
-      if(rec.url){
-        const a2=document.createElement("a");a2.href=rec.url;
-        a2.download=`面接録音_${nm}_${new Date().toISOString().slice(0,10)}.webm`;a2.click();
+      if(targetEmail){
+        // Send via Google Apps Script with recording attachment
+        const payload={
+          token:GAS_TOKEN,
+          to:targetEmail,
+          subject:`【面接結果】${nm}様 - ${POS.find(p=>p.id===pos)?.ja} - ${r}`,
+          body:body,
+          report_text:body,
+          report_filename:`面接結果_${nm}_${dt}.txt`
+        };
+        // Attach recording if available
+        if(rec.blob){
+          const ext=rec.blob.type.includes("webm")?"webm":"mp4";
+          payload.recording_base64=await blobToBase64(rec.blob);
+          payload.recording_type=rec.blob.type;
+          payload.recording_filename=`面接録音_${nm}_${dt}.${ext}`;
+        }
+        const resp=await fetch(GAS_URL,{method:"POST",body:JSON.stringify(payload)});
+        const result=await resp.json();
+        if(!result.success)throw new Error(result.error||"送信失敗");
+      } else {
+        // No email: download files locally
+        const rb=new Blob([body],{type:"text/plain;charset=utf-8"});
+        const a1=document.createElement("a");a1.href=URL.createObjectURL(rb);
+        a1.download=`面接結果_${nm}_${dt}.txt`;a1.click();
+        if(rec.blob){
+          const ext=rec.blob.type.includes("webm")?"webm":"mp4";
+          const a2=document.createElement("a");a2.href=rec.url;
+          a2.download=`面接録音_${nm}_${dt}.${ext}`;a2.click();
+        }
       }
-
-      // Open mail client
-      setTimeout(()=>{
-        const subj=encodeURIComponent(`【面接結果】${nm}様 - ${POS.find(p=>p.id===pos)?.ja} - ${r}`);
-        const mailBody=encodeURIComponent(body.slice(0,1800)+"\n\n※ 詳細は添付のテキストファイルをご確認ください。\n※ 録音ファイルも別途添付してください。");
-        window.open(`mailto:${FIXED_EMAIL}?subject=${subj}&body=${mailBody}`,"_blank");
-      },500);
 
       setSendSt("done");
     }catch(e){console.error(e);setSendSt("error")}
   };
 
+  /* ═══ Restart ═══ */
   const restart=()=>{
     speechSynthesis?.cancel();stt.stop();rec.end();rec.reset();
-    setPh("setup");setPos(null);setNm("");setQi(0);setAns([]);setDraft("");setEv(null);setSkipP(false);clrR();setSendSt("");
+    setPh("setup");setPos(null);setNm("");setQi(0);setAns([]);setDraft("");setEv(null);setSkipP(false);clrR();setSendSt("");setFullQs([]);
   };
 
-  // Styles
+  /* ═══ Styles ═══ */
   const sh={minHeight:"100vh",background:C.bg,color:C.tx,fontFamily:"'DM Sans','Noto Sans JP',system-ui,sans-serif",position:"relative",overflow:"hidden",opacity:fade?1:0,transition:"opacity .5s"};
   const cd={background:C.sf,border:`1px solid ${C.bd}`,borderRadius:18,padding:26};
   const lb={fontSize:11,color:C.td,fontWeight:600,letterSpacing:2,textTransform:"uppercase",display:"block",marginBottom:10};
@@ -298,27 +552,27 @@ function App(){
   const fo=e=>e.target.style.borderColor=C.ac,bl=e=>e.target.style.borderColor=C.bd;
   const pbtn=ok=>({width:"100%",padding:15,borderRadius:12,border:"none",background:ok?`linear-gradient(135deg,${C.ac},#1e50a0)`:"rgba(255,255,255,.04)",color:ok?"#fff":"rgba(255,255,255,.2)",fontSize:15,fontWeight:600,cursor:ok?"pointer":"not-allowed",fontFamily:"inherit",boxShadow:ok?`0 6px 20px ${C.ag}`:"none"});
 
-  /* ═══ API KEY ═══ */
+  /* ═══ API KEY SCREEN ═══ */
   if(ph==="apikey")return(
     <div style={sh}>{bg}
       <div style={{position:"relative",zIndex:1,maxWidth:480,margin:"0 auto",padding:"80px 24px"}}>
         <div style={{textAlign:"center",marginBottom:40,animation:"fadeUp .6s"}}>
           <div style={{width:52,height:52,borderRadius:13,margin:"0 auto 16px",background:`linear-gradient(135deg,${C.ac},#1e50a0)`,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 6px 28px ${C.ag}`,fontSize:24}}>🔑</div>
           <h1 style={{fontSize:22,fontWeight:600}}>APIキー設定</h1>
-          <p style={{color:C.td,fontSize:13,marginTop:8,lineHeight:1.6}}>Anthropic APIキーを入力してください。<br/><a href="https://console.anthropic.com/" target="_blank" rel="noopener" style={{color:C.ac,textDecoration:"none"}}>console.anthropic.com</a> で取得できます。</p>
+          <p style={{color:C.td,fontSize:13,marginTop:8,lineHeight:1.6}}>Groq APIキーを入力してください（無料）。<br/><a href="https://console.groq.com/keys" target="_blank" rel="noopener" style={{color:C.ac,textDecoration:"none"}}>console.groq.com/keys</a> で無料取得できます。</p>
         </div>
         <div style={{...cd,marginBottom:20,animation:"fadeUp .6s .1s both"}}>
           <label style={lb}>APIキー</label>
-          <input type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..." style={ip} onFocus={fo} onBlur={bl} onKeyDown={e=>e.key==="Enter"&&saveKey()}/>
+          <input type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="gsk_..." style={ip} onFocus={fo} onBlur={bl} onKeyDown={e=>e.key==="Enter"&&saveKey()}/>
           {keyErr&&<p style={{fontSize:12,color:C.rd,marginTop:8}}>⚠ {keyErr}</p>}
           <p style={{fontSize:11,color:C.td,marginTop:10,lineHeight:1.5}}>※ ブラウザのローカルに保存。サーバーには送信されません。</p>
         </div>
-        <button onClick={saveKey} style={{...pbtn(key.trim().startsWith("sk-")),animation:"fadeUp .6s .2s both"}}>保存して開始</button>
+        <button onClick={saveKey} style={{...pbtn(key.trim().startsWith("gsk_")),animation:"fadeUp .6s .2s both"}}>保存して開始</button>
       </div>
     </div>
   );
 
-  /* ═══ SETUP ═══ */
+  /* ═══ SETUP SCREEN ═══ */
   if(ph==="setup")return(
     <div style={sh}>{bg}
       <div style={{position:"relative",zIndex:1,maxWidth:560,margin:"0 auto",padding:"44px 24px"}}>
@@ -328,20 +582,35 @@ function App(){
           <p style={{color:C.td,fontSize:13,marginTop:6}}>AIが面接官として音声で質問・録音します</p>
         </div>
 
+        {/* 候補者名 */}
         <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .1s both"}}>
           <label style={lb}>候補者名</label>
           <input value={nm} onChange={e=>setNm(e.target.value)} placeholder="氏名を入力してください" style={ip} onFocus={fo} onBlur={bl}/>
         </div>
 
-        {/* 送信先（固定表示） */}
+        {/* 言語選択 */}
         <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .12s both"}}>
-          <label style={lb}>📧 結果送信先</label>
-          <div style={{padding:"10px 14px",borderRadius:10,background:"rgba(61,139,253,.06)",border:`1px solid ${C.ac}22`,fontSize:14,color:C.ac,fontWeight:500}}>{FIXED_EMAIL}</div>
-          <p style={{fontSize:11,color:C.td,marginTop:6}}>面接終了後、評価結果と録音がこのアドレスに送信されます。</p>
+          <label style={lb}>🌐 候補者の言語 / Ngôn ngữ</label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {LANGS.map(l=>{
+              const s=lang===l.id;
+              return<button key={l.id} onClick={()=>setLang(l.id)} style={{padding:"8px 14px",borderRadius:10,border:`1px solid ${s?C.ac+"55":C.bd}`,background:s?C.ad:"transparent",color:s?C.ac:C.td,fontSize:13,fontWeight:s?600:400,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6}}>
+                <span>{l.flag}</span><span>{l.label}</span>
+              </button>
+            })}
+          </div>
+          <p style={{fontSize:11,color:C.td,marginTop:8}}>解説は日本語＋選択した言語で表示されます</p>
+        </div>
+
+        {/* 送信先メール（企業が入力） */}
+        <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .14s both"}}>
+          <label style={lb}>📧 結果送信先メール（任意）</label>
+          <input value={compEmail} onChange={e=>setCompEmail(e.target.value)} placeholder="example@company.co.jp" style={ip} onFocus={fo} onBlur={bl} type="email"/>
+          <p style={{fontSize:11,color:C.td,marginTop:6}}>面接終了後、評価レポート＋録音ファイルをこのアドレスにメール送信します。空欄の場合はダウンロードのみ。</p>
         </div>
 
         {/* 履歴書 */}
-        <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .15s both"}}>
+        <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .16s both"}}>
           <label style={lb}>📄 履歴書（任意）</label>
           <div style={{display:"flex",gap:6,marginBottom:14}}>
             {[{m:"none",l:"なし"},{m:"file",l:"📎 ファイル"},{m:"text",l:"✏️ テキスト"}].map(({m,l})=>
@@ -359,10 +628,29 @@ function App(){
               <button onClick={clrR} style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${C.bd}`,background:"rgba(255,255,255,.05)",color:C.td,fontSize:11,cursor:"pointer"}}>削除</button>
             </div>
             {rPrev&&<div style={{marginTop:10,borderRadius:10,overflow:"hidden",border:`1px solid ${C.bd}`}}><img src={rPrev} alt="CV" style={{width:"100%",maxHeight:250,objectFit:"contain",background:"#fff"}}/></div>}
+            {/* CV Analysis Status */}
+            {cvLoading&&<div style={{marginTop:10,padding:"10px 14px",borderRadius:10,background:"rgba(61,139,253,.06)",border:`1px solid ${C.ac}22`,display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:16,height:16,border:"2px solid transparent",borderTop:`2px solid ${C.ac}`,borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+              <span style={{fontSize:12,color:C.ac}}>履歴書を分析中... / Đang phân tích CV...</span>
+            </div>}
+            {cvAnalyzed&&!cvLoading&&<div style={{marginTop:10,padding:"10px 14px",borderRadius:10,background:"rgba(52,211,153,.06)",border:`1px solid ${C.gn}22`,display:"flex",alignItems:"center",gap:8}}>
+              <span>✅</span>
+              <span style={{fontSize:12,color:C.gn}}>履歴書分析完了！{cvDynQs.length}個の追加質問を生成しました</span>
+            </div>}
           </div>)}
-          {rMode==="text"&&<textarea value={rTxt} onChange={e=>setRT(e.target.value)} placeholder={"職歴を入力\n例：2020年〜2022年：○○株式会社"} rows={5} style={{...ip,resize:"vertical",fontSize:13,lineHeight:1.7}} onFocus={fo} onBlur={bl}/>}
+          {rMode==="text"&&<div>
+            <textarea value={rTxt} onChange={e=>{setRT(e.target.value);setCvAnalyzed(false)}} placeholder={"職歴を入力\n例：2020年〜2022年：○○株式会社"} rows={5} style={{...ip,resize:"vertical",fontSize:13,lineHeight:1.7}} onFocus={fo} onBlur={bl}/>
+            {cvLoading&&<div style={{marginTop:10,padding:"10px 14px",borderRadius:10,background:"rgba(61,139,253,.06)",border:`1px solid ${C.ac}22`,display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:16,height:16,border:"2px solid transparent",borderTop:`2px solid ${C.ac}`,borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+              <span style={{fontSize:12,color:C.ac}}>分析中...</span>
+            </div>}
+            {cvAnalyzed&&!cvLoading&&rTxt.trim()&&<div style={{marginTop:10,padding:"10px 14px",borderRadius:10,background:"rgba(52,211,153,.06)",border:`1px solid ${C.gn}22`}}>
+              <span style={{fontSize:12,color:C.gn}}>✅ {cvDynQs.length}個の追加質問を生成しました</span>
+            </div>}
+          </div>}
         </div>
 
+        {/* 応募職種 */}
         <div style={{...cd,marginBottom:24,animation:"fadeUp .6s .2s both"}}>
           <label style={lb}>応募職種</label>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -370,7 +658,8 @@ function App(){
           </div>
         </div>
 
-        <button onClick={begin} disabled={!pos||!nm.trim()} style={{...pbtn(pos&&nm.trim()),animation:"fadeUp .6s .3s both"}}>🎙️ 面接を開始する（録音開始）</button>
+        <button onClick={begin} disabled={!pos||!nm.trim()||cvLoading} style={{...pbtn(pos&&nm.trim()&&!cvLoading),animation:"fadeUp .6s .3s both"}}>🎙️ 面接を開始する（録音開始）</button>
+        {cvLoading&&<p style={{textAlign:"center",color:C.am,fontSize:12,marginTop:8}}>⏳ 履歴書分析中です。少々お待ちください...</p>}
         {!stt.ok&&<p style={{textAlign:"center",color:C.am,fontSize:12,marginTop:12}}>⚠ 音声認識非対応。テキスト入力で回答できます。</p>}
         <p style={{textAlign:"center",color:C.td,fontSize:11,marginTop:10,lineHeight:1.5}}>※ マイクのアクセス許可が必要です。「許可」を押してください。<br/>※ 面接全体が録音されます。</p>
         <div style={{textAlign:"center",marginTop:16}}><button onClick={()=>{localStorage.removeItem(API_KEY_STORE);setKey("");setPh("apikey")}} style={{background:"none",border:"none",color:C.td,fontSize:12,cursor:"pointer",textDecoration:"underline"}}>APIキーを変更</button></div>
@@ -378,9 +667,12 @@ function App(){
     </div>
   );
 
-  /* ═══ INTERVIEW ═══ */
+  /* ═══ INTERVIEW SCREEN ═══ */
   if(ph==="interview"){
-    const act=actQ(),cnt=ans.length,prog=(cnt/act.length)*100;
+    const totalQ=fullQs.filter(q=>!(q.cond==="prayer"&&skipP)).length;
+    const answeredCount=ans.length;
+    const prog=(answeredCount/totalQ)*100;
+    const curQ=fullQs[qi];
     return(
       <div style={sh}>{bg}
         <div style={{position:"relative",zIndex:1,maxWidth:620,margin:"0 auto",padding:"32px 24px"}}>
@@ -389,10 +681,10 @@ function App(){
           </div>}
           <div style={{marginBottom:24}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}>
-              <span style={{fontSize:12,color:C.td}}>質問 {cnt+1}/{act.length}</span>
+              <span style={{fontSize:12,color:C.td}}>質問 {answeredCount+1}/{totalQ}</span>
               <div style={{display:"flex",gap:6}}>
-                {hasR&&qs[qi]?.dyn&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:12,background:"rgba(52,211,153,.1)",color:C.gn,fontWeight:600}}>📄</span>}
-                <span style={{fontSize:11,padding:"3px 10px",borderRadius:16,background:C.ad,color:C.ac,fontWeight:600}}>{qs[qi]?.t}</span>
+                {curQ?.cvGen&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:12,background:"rgba(45,212,191,.1)",color:C.tl,fontWeight:600}}>📄 CV</span>}
+                <span style={{fontSize:11,padding:"3px 10px",borderRadius:16,background:C.ad,color:C.ac,fontWeight:600}}>{curQ?.t}</span>
               </div>
             </div>
             <div style={{height:2,background:"rgba(255,255,255,.04)",borderRadius:1}}><div style={{height:"100%",width:`${Math.min(prog,100)}%`,borderRadius:1,background:`linear-gradient(90deg,${C.ac},${C.tl})`,transition:"width .5s"}}/></div>
@@ -400,7 +692,7 @@ function App(){
 
           <div style={{...cd,textAlign:"center",marginBottom:18,animation:"fadeUp .4s"}}>
             <div style={{marginBottom:18}}><Orb on={spk}/></div>
-            <p style={{fontSize:17,lineHeight:1.85,color:"rgba(255,255,255,.88)",margin:"0 0 14px"}}>{qTxt(qi)}</p>
+            <p style={{fontSize:17,lineHeight:1.85,color:"rgba(255,255,255,.88)",margin:"0 0 14px"}}>{curQ?.q}</p>
             {!spk&&<button onClick={()=>spkQ(qi)} style={{padding:"6px 14px",borderRadius:8,background:C.ad,border:`1px solid ${C.ac}30`,color:C.ac,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>🔊 もう一度再生</button>}
           </div>
 
@@ -416,7 +708,7 @@ function App(){
             <textarea value={draft} onChange={e=>setDraft(e.target.value)} placeholder={stt.ok?"🎤 マイクで話す、またはここに入力…":"回答を入力…"} rows={4} style={{...ip,resize:"vertical",fontSize:14,lineHeight:1.75}} onFocus={fo} onBlur={bl}/>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
               <span style={{fontSize:11,color:C.td}}>{draft.length}文字</span>
-              <button onClick={submit} disabled={!draft.trim()} style={{padding:"10px 22px",borderRadius:10,border:"none",background:draft.trim()?`linear-gradient(135deg,${C.ac},#1e50a0)`:"rgba(255,255,255,.04)",color:draft.trim()?"#fff":"rgba(255,255,255,.2)",fontSize:14,fontWeight:600,cursor:draft.trim()?"pointer":"not-allowed",fontFamily:"inherit"}}>{qi<qs.length-1?"次の質問 →":"面接を終了 ✓"}</button>
+              <button onClick={submit} disabled={!draft.trim()} style={{padding:"10px 22px",borderRadius:10,border:"none",background:draft.trim()?`linear-gradient(135deg,${C.ac},#1e50a0)`:"rgba(255,255,255,.04)",color:draft.trim()?"#fff":"rgba(255,255,255,.2)",fontSize:14,fontWeight:600,cursor:draft.trim()?"pointer":"not-allowed",fontFamily:"inherit"}}>{qi<fullQs.length-1?"次の質問 →":"面接を終了 ✓"}</button>
             </div>
           </div>
         </div>
@@ -424,7 +716,7 @@ function App(){
     );
   }
 
-  /* ═══ EVALUATING ═══ */
+  /* ═══ EVALUATING SCREEN ═══ */
   if(ph==="evaluating")return(
     <div style={{...sh,display:"flex",alignItems:"center",justifyContent:"center"}}>{bg}
       <div style={{textAlign:"center",zIndex:1,animation:"fadeUp .5s"}}>
@@ -437,14 +729,15 @@ function App(){
     </div>
   );
 
-  /* ═══ RESULT ═══ */
+  /* ═══ RESULT SCREEN ═══ */
   if(ph==="result"&&ev){
     const r=ev.recommendation,rc=r==="合格"?C.gn:r==="保留"?C.am:C.rd,corr=ev.grammar_corrections||[];
     return(
       <div style={sh}>{bg}
         <div style={{position:"relative",zIndex:1,maxWidth:640,margin:"0 auto",padding:"36px 24px 60px"}}>
-          <div style={{textAlign:"center",marginBottom:28,animation:"fadeUp .5s"}}><h1 style={{fontSize:21,fontWeight:600,margin:"0 0 4px"}}>面接評価レポート</h1><p style={{color:C.td,fontSize:13}}>{nm} — {POS.find(p=>p.id===pos)?.label}</p></div>
+          <div style={{textAlign:"center",marginBottom:28,animation:"fadeUp .5s"}}><h1 style={{fontSize:21,fontWeight:600,margin:"0 0 4px"}}>面接評価レポート / Interview Report</h1><p style={{color:C.td,fontSize:13}}>{nm} — {POS.find(p=>p.id===pos)?.label}</p></div>
 
+          {/* 判定 */}
           <div style={{...cd,textAlign:"center",marginBottom:14,borderColor:rc+"20",animation:"fadeUp .5s .1s both"}}>
             <div style={{display:"inline-block",padding:"6px 24px",borderRadius:20,background:rc+"18",border:`1px solid ${rc}44`,color:rc,fontSize:17,fontWeight:700}}>判定：{r}</div>
             <div style={{display:"flex",justifyContent:"center",gap:24,marginTop:14}}>
@@ -453,45 +746,118 @@ function App(){
             </div>
           </div>
 
+          {/* 評価項目 */}
           <div style={{...cd,marginBottom:14,animation:"fadeUp .5s .2s both"}}>
             <h3 style={{...lb,margin:"0 0 14px"}}>評価項目</h3>
             {crit.map(c=><div key={c.k} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:13,color:C.tm}}>{c.i} {c.l}</span><SB s={ev.scores[c.k]||3}/></div>)}
           </div>
 
-          <div style={{...cd,marginBottom:14,animation:"fadeUp .5s .3s both"}}><h3 style={{...lb,margin:"0 0 10px"}}>総合コメント</h3><p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:0}}>{ev.summary}</p></div>
-
-          {ev.resume_analysis&&<div style={{...cd,marginBottom:14,borderColor:C.tl+"18",animation:"fadeUp .5s .32s both"}}><h3 style={{fontSize:11,color:C.tl,margin:"0 0 10px",fontWeight:600,letterSpacing:2}}>📄 履歴書照合</h3><p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:0}}>{ev.resume_analysis}</p></div>}
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14,animation:"fadeUp .5s .35s both"}}>
-            <div style={{...cd,padding:18,borderColor:C.gn+"15"}}><h3 style={{fontSize:11,color:C.gn,margin:"0 0 10px",fontWeight:600}}>💪 強み</h3>{(ev.strengths||[]).map((s,i)=><p key={i} style={{fontSize:13,lineHeight:1.6,color:C.tm,margin:"0 0 4px"}}>· {s}</p>)}</div>
-            <div style={{...cd,padding:18,borderColor:C.am+"15"}}><h3 style={{fontSize:11,color:C.am,margin:"0 0 10px",fontWeight:600}}>📝 改善点</h3>{(ev.improvements||[]).map((s,i)=><p key={i} style={{fontSize:13,lineHeight:1.6,color:C.tm,margin:"0 0 4px"}}>· {s}</p>)}</div>
+          {/* 総合コメント - Bilingual */}
+          <div style={{...cd,marginBottom:14,animation:"fadeUp .5s .25s both"}}>
+            <h3 style={{...lb,margin:"0 0 10px"}}>総合コメント</h3>
+            <p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:"0 0 12px"}}>{ev.summary}</p>
+            {ev.summary_lang&&<div style={{padding:"12px 14px",borderRadius:10,background:"rgba(45,212,191,.06)",border:`1px solid ${C.tl}22`}}>
+              <div style={{fontSize:11,color:C.tl,fontWeight:600,marginBottom:6}}>{langObj.flag} {langObj.label}</div>
+              <p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:0}}>{ev.summary_lang}</p>
+            </div>}
           </div>
 
-          {corr.length>0&&<div style={{...cd,marginBottom:14,animation:"fadeUp .5s .4s both"}}>
-            <h3 style={{fontSize:11,color:C.tl,margin:"0 0 14px",fontWeight:600,letterSpacing:2}}>✏️ 文法修正</h3>
-            {corr.map((c,i)=><div key={i} style={{padding:"12px 14px",borderRadius:10,marginBottom:10,background:"rgba(255,255,255,.02)",border:`1px solid ${C.bd}`}}>
-              <div style={{display:"flex",gap:8,marginBottom:6,flexWrap:"wrap",alignItems:"center"}}>
-                <span style={{fontSize:12,padding:"2px 8px",borderRadius:6,background:"rgba(248,113,113,.12)",color:C.rd,textDecoration:"line-through"}}>{c.original}</span>
-                <span style={{color:C.td,fontSize:12}}>→</span>
-                <span style={{fontSize:12,padding:"2px 8px",borderRadius:6,background:"rgba(52,211,153,.12)",color:C.gn}}>{c.corrected}</span>
+          {/* 履歴書照合 - Bilingual */}
+          {ev.resume_analysis&&<div style={{...cd,marginBottom:14,borderColor:C.tl+"18",animation:"fadeUp .5s .28s both"}}>
+            <h3 style={{fontSize:11,color:C.tl,margin:"0 0 10px",fontWeight:600,letterSpacing:2}}>📄 履歴書照合</h3>
+            <p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:"0 0 10px"}}>{ev.resume_analysis}</p>
+            {ev.resume_analysis_lang&&<div style={{padding:"12px 14px",borderRadius:10,background:"rgba(45,212,191,.04)",border:`1px solid ${C.tl}15`}}>
+              <div style={{fontSize:11,color:C.tl,fontWeight:600,marginBottom:6}}>{langObj.flag} {langObj.label}</div>
+              <p style={{fontSize:14,lineHeight:1.8,color:C.tm,margin:0}}>{ev.resume_analysis_lang}</p>
+            </div>}
+          </div>}
+
+          {/* 強み・改善点 - Bilingual */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14,animation:"fadeUp .5s .3s both"}}>
+            <div style={{...cd,padding:18,borderColor:C.gn+"15"}}>
+              <h3 style={{fontSize:11,color:C.gn,margin:"0 0 10px",fontWeight:600}}>💪 強み</h3>
+              {(ev.strengths||[]).map((s,i)=><p key={i} style={{fontSize:13,lineHeight:1.6,color:C.tm,margin:"0 0 4px"}}>· {s}</p>)}
+              {ev.strengths_lang&&ev.strengths_lang.length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.gn}15`}}>
+                <div style={{fontSize:10,color:C.gn,marginBottom:4}}>{langObj.flag}</div>
+                {ev.strengths_lang.map((s,i)=><p key={i} style={{fontSize:12,lineHeight:1.6,color:C.td,margin:"0 0 4px"}}>· {s}</p>)}
+              </div>}
+            </div>
+            <div style={{...cd,padding:18,borderColor:C.am+"15"}}>
+              <h3 style={{fontSize:11,color:C.am,margin:"0 0 10px",fontWeight:600}}>📝 改善点</h3>
+              {(ev.improvements||[]).map((s,i)=><p key={i} style={{fontSize:13,lineHeight:1.6,color:C.tm,margin:"0 0 4px"}}>· {s}</p>)}
+              {ev.improvements_lang&&ev.improvements_lang.length>0&&<div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.am}15`}}>
+                <div style={{fontSize:10,color:C.am,marginBottom:4}}>{langObj.flag}</div>
+                {ev.improvements_lang.map((s,i)=><p key={i} style={{fontSize:12,lineHeight:1.6,color:C.td,margin:"0 0 4px"}}>· {s}</p>)}
+              </div>}
+            </div>
+          </div>
+
+          {/* ═══ 解説セクション（候補者向け・Bilingual） ═══ */}
+          {corr.length>0&&<div style={{...cd,marginBottom:14,borderColor:C.tl+"25",background:"rgba(45,212,191,.03)",animation:"fadeUp .5s .35s both"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+              <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(135deg,${C.tl},#1a7a70)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📖</div>
+              <div>
+                <h3 style={{fontSize:15,fontWeight:600,margin:0,color:C.tl}}>解説 / Explanation</h3>
+                <p style={{fontSize:11,color:C.td,margin:0}}>日本語の文法修正と解説 ({langObj.label})</p>
               </div>
-              <p style={{fontSize:12,color:C.td,margin:0,lineHeight:1.6,fontStyle:"italic"}}>💡 {c.explanation_vi}</p>
+            </div>
+            {corr.map((c,i)=><div key={i} style={{padding:"16px 14px",borderRadius:12,marginBottom:12,background:"rgba(255,255,255,.02)",border:`1px solid ${C.bd}`}}>
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:C.td,marginBottom:6,fontWeight:600}}>#{i+1}</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontSize:13,padding:"3px 10px",borderRadius:8,background:"rgba(248,113,113,.12)",color:C.rd,textDecoration:"line-through"}}>{c.original}</span>
+                  <span style={{color:C.td,fontSize:14}}>→</span>
+                  <span style={{fontSize:13,padding:"3px 10px",borderRadius:8,background:"rgba(52,211,153,.12)",color:C.gn,fontWeight:500}}>{c.corrected}</span>
+                </div>
+              </div>
+              {/* 日本語解説 */}
+              <div style={{padding:"10px 12px",borderRadius:8,background:"rgba(61,139,253,.04)",border:`1px solid ${C.ac}15`,marginBottom:8}}>
+                <div style={{fontSize:10,color:C.ac,fontWeight:600,marginBottom:4}}>🇯🇵 日本語</div>
+                <p style={{fontSize:13,color:C.tm,margin:0,lineHeight:1.7}}>{c.explanation_ja||c.explanation_vi||""}</p>
+              </div>
+              {/* 候補者言語解説 */}
+              <div style={{padding:"10px 12px",borderRadius:8,background:"rgba(45,212,191,.04)",border:`1px solid ${C.tl}15`}}>
+                <div style={{fontSize:10,color:C.tl,fontWeight:600,marginBottom:4}}>{langObj.flag} {langObj.label}</div>
+                <p style={{fontSize:13,color:C.tm,margin:0,lineHeight:1.7}}>{c.explanation_lang||c.explanation_vi||""}</p>
+              </div>
             </div>)}
           </div>}
 
-          {rec.url&&<div style={{...cd,marginBottom:14,animation:"fadeUp .5s .42s both"}}><h3 style={{fontSize:11,color:C.ac,margin:"0 0 12px",fontWeight:600,letterSpacing:2}}>🎧 面接録音</h3><audio controls src={rec.url}/></div>}
+          {/* 録音 */}
+          {rec.url&&<div style={{...cd,marginBottom:14,animation:"fadeUp .5s .4s both"}}><h3 style={{fontSize:11,color:C.ac,margin:"0 0 12px",fontWeight:600,letterSpacing:2}}>🎧 面接録音</h3><audio controls src={rec.url}/></div>}
 
+          {/* 送信セクション */}
           <div style={{...cd,marginBottom:14,animation:"fadeUp .5s .45s both"}}>
-            <h3 style={{fontSize:11,color:C.ac,margin:"0 0 12px",fontWeight:600,letterSpacing:2}}>📧 結果を送信</h3>
-            <p style={{fontSize:12,color:C.td,marginBottom:6}}>送信先: <strong style={{color:C.ac}}>{FIXED_EMAIL}</strong></p>
-            <p style={{fontSize:12,color:C.td,marginBottom:12,lineHeight:1.6}}>レポート(.txt)と録音(.webm)をダウンロードし、メールアプリを開きます。<br/>ダウンロードしたファイルをメールに添付してください。</p>
+            <h3 style={{fontSize:11,color:C.ac,margin:"0 0 12px",fontWeight:600,letterSpacing:2}}>📧 結果を送信・ダウンロード</h3>
+            {compEmail.trim()?<p style={{fontSize:12,color:C.td,marginBottom:6}}>送信先: <strong style={{color:C.ac}}>{compEmail}</strong></p>
+            :<p style={{fontSize:12,color:C.am,marginBottom:6}}>⚠ 送信先メールが未設定のため、ダウンロードのみ行います。</p>}
+            <p style={{fontSize:12,color:C.td,marginBottom:12,lineHeight:1.6}}>{compEmail.trim()?"評価レポートと録音ファイルをメールで直接送信します。":"レポート(.txt)と録音ファイルをダウンロードします。"}</p>
             <button onClick={send} disabled={sendSt==="sending"} style={{
               width:"100%",padding:14,borderRadius:12,border:"none",
               background:sendSt==="done"?"rgba(52,211,153,.15)":sendSt==="sending"?"rgba(255,255,255,.04)":`linear-gradient(135deg,${C.ac},#1e50a0)`,
               color:sendSt==="done"?C.gn:sendSt==="sending"?C.td:"#fff",
               fontSize:14,fontWeight:600,cursor:sendSt==="sending"?"wait":"pointer",fontFamily:"inherit",
-            }}>{sendSt===""?"📧 ダウンロード＆メール送信":sendSt==="sending"?"処理中…":sendSt==="done"?"✅ 完了！メールアプリを確認してください":"⚠ エラー"}</button>
+            }}>{sendSt===""?(compEmail.trim()?"📧 メールで送信（録音付き）":"📥 ダウンロード"):sendSt==="sending"?(compEmail.trim()?"📧 録音ファイルを送信中…":"処理中…"):sendSt==="done"?(compEmail.trim()?"✅ メール送信完了！録音付き":"✅ ダウンロード済み"):"⚠ エラー — もう一度お試しください"}</button>
+            {sendSt==="error"&&<button onClick={()=>setSendSt("")} style={{width:"100%",marginTop:8,padding:10,borderRadius:10,border:`1px solid ${C.bd}`,background:"transparent",color:C.tm,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>再試行</button>}
           </div>
+
+          {/* 全回答記録 */}
+          <details style={{marginBottom:14,animation:"fadeUp .5s .48s both"}}>
+            <summary style={{...cd,cursor:"pointer",fontSize:13,color:C.tm,fontWeight:500,listStyle:"none"}}>
+              📋 全回答記録を表示 ({ans.length}問)
+            </summary>
+            <div style={{...cd,marginTop:2,borderTop:"none",borderTopLeftRadius:0,borderTopRightRadius:0}}>
+              {ans.map((a,i)=><div key={i} style={{marginBottom:14,paddingBottom:14,borderBottom:i<ans.length-1?`1px solid ${C.bd}`:"none"}}>
+                <div style={{display:"flex",gap:6,marginBottom:6}}>
+                  <span style={{fontSize:11,color:C.ac,fontWeight:600}}>Q{i+1}</span>
+                  <span style={{fontSize:11,padding:"1px 6px",borderRadius:8,background:C.ad,color:C.ac}}>{a.tag}</span>
+                  {a.cvGen&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:8,background:"rgba(45,212,191,.1)",color:C.tl}}>CV</span>}
+                </div>
+                <p style={{fontSize:13,color:C.td,margin:"0 0 4px"}}>{a.question}</p>
+                <p style={{fontSize:13,color:C.tm,margin:0}}>{a.answer}</p>
+              </div>)}
+            </div>
+          </details>
 
           <button onClick={restart} style={{width:"100%",padding:13,borderRadius:12,border:`1px solid ${C.bd}`,background:"transparent",color:C.tm,fontSize:14,cursor:"pointer",fontFamily:"inherit",fontWeight:500,animation:"fadeUp .5s .5s both"}}>↻ 新しい面接</button>
         </div>
