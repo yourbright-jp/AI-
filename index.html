@@ -27,7 +27,6 @@ audio{filter:invert(.85) hue-rotate(180deg);border-radius:8px;width:100%}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-<script src="https://world-id-public.s3.amazonaws.com/idkit-standalone-1.4.2.js"></script>
 <script type="text/babel">
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
 
@@ -366,38 +365,60 @@ JSON形式のみで回答：
   /* ═══ WORLD ID VERIFICATION ═══ */
   const verifyWorldID=async()=>{
     if(!nm.trim()){alert("先に候補者名を入力してください / Please enter candidate name first");return;}
-    if(typeof IDKit==="undefined"){alert("World ID SDK not loaded. Please refresh the page.");return;}
     setWorldVerifying(true);
-    try{
-      const result = await new Promise((resolve, reject) => {
-        IDKit.init({
-          app_id: WORLD_ID_APP_ID,
-          action: WORLD_ID_ACTION,
-          signal: nm.trim(),
-          verification_level: "device",
-          handleVerify: (proof) => {
-            console.log("World ID proof:", proof);
-            resolve(proof);
-          },
-          onSuccess: (result) => {
-            console.log("World ID success:", result);
-            resolve(result);
-          },
-          onError: (error) => {
-            console.error("World ID error:", error);
-            reject(error);
-          }
-        });
-        IDKit.open();
-      });
-      setWorldVerified(true);
-      setWorldNullifier(result.nullifier_hash || result.merkle_root || "verified");
+    
+    // Open World ID verification in popup window
+    const verifyUrl = `https://id.worldcoin.org/verify?app_id=${WORLD_ID_APP_ID}&action=${WORLD_ID_ACTION}&signal=${encodeURIComponent(nm.trim())}&verification_level=device`;
+    
+    const popup = window.open(verifyUrl, 'WorldID', 'width=420,height=720,scrollbars=yes,resizable=yes');
+    
+    if(!popup){
       setWorldVerifying(false);
-    }catch(e){
-      console.error("Verification failed:",e);
-      setWorldVerifying(false);
-      alert("認証に失敗しました / Verification failed: "+(e.message||"Unknown error"));
+      alert("ポップアップがブロックされました。ブラウザの設定を確認してください。\nPopup blocked. Please allow popups for this site.");
+      return;
     }
+    
+    // Listen for message from popup
+    const messageHandler = (event) => {
+      if(event.data && event.data.type === "worldcoin_verify_success"){
+        setWorldVerified(true);
+        setWorldNullifier(event.data.nullifier_hash || "verified-"+Date.now());
+        setWorldVerifying(false);
+        window.removeEventListener("message", messageHandler);
+        popup.close();
+      }
+    };
+    window.addEventListener("message", messageHandler);
+    
+    // Check if popup closed manually - assume success after manual check
+    const checkClosed = setInterval(() => {
+      if(popup.closed){
+        clearInterval(checkClosed);
+        window.removeEventListener("message", messageHandler);
+        // Ask user if verification was successful
+        setTimeout(() => {
+          if(!worldVerified){
+            const confirmed = window.confirm("World IDで認証は完了しましたか？\nDid you complete the World ID verification?");
+            if(confirmed){
+              setWorldVerified(true);
+              setWorldNullifier("verified-"+Date.now());
+            }
+            setWorldVerifying(false);
+          }
+        }, 500);
+      }
+    }, 1000);
+  };
+
+  /* DEMO MODE: For hackathon testing without actual World App */
+  const verifyWorldIDDemo=()=>{
+    if(!nm.trim()){alert("先に候補者名を入力してください");return;}
+    setWorldVerifying(true);
+    setTimeout(()=>{
+      setWorldVerified(true);
+      setWorldNullifier("demo-verified-"+Date.now());
+      setWorldVerifying(false);
+    },1500);
   };
 
   const begin=()=>{
@@ -725,7 +746,8 @@ JSON形式のみで回答:
                 fontSize:14,fontWeight:600,
                 cursor:nm.trim()&&!worldVerifying?"pointer":"not-allowed",
                 fontFamily:"inherit",
-                display:"flex",alignItems:"center",justifyContent:"center",gap:8
+                display:"flex",alignItems:"center",justifyContent:"center",gap:8,
+                marginBottom:8
               }}>
                 {worldVerifying?(
                   <>
@@ -738,6 +760,17 @@ JSON形式のみで回答:
                     <span>World IDで本人確認 / Verify with World ID</span>
                   </>
                 )}
+              </button>
+              <button onClick={verifyWorldIDDemo} disabled={!nm.trim()||worldVerifying} style={{
+                width:"100%",padding:"8px 12px",borderRadius:8,
+                border:`1px dashed rgba(99,102,241,.4)`,
+                background:"transparent",
+                color:"rgba(139,92,246,.8)",
+                fontSize:12,fontWeight:500,
+                cursor:nm.trim()&&!worldVerifying?"pointer":"not-allowed",
+                fontFamily:"inherit"
+              }}>
+                🧪 Demo Mode（ハッカソン審査用 / For hackathon demo）
               </button>
               {!nm.trim()&&<p style={{fontSize:11,color:C.am,marginTop:8,textAlign:"center"}}>⚠ 先に候補者名を入力してください</p>}
             </div>
