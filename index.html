@@ -27,10 +27,15 @@ audio{filter:invert(.85) hue-rotate(180deg);border-radius:8px;width:100%}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://world-id-public.s3.amazonaws.com/idkit-standalone-1.4.2.js"></script>
 <script type="text/babel">
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
 
 const API_KEY_STORE = "ai_mensetsu_key";
+
+/* ═══ WORLD ID CONFIG ═══ */
+const WORLD_ID_APP_ID = "app_f5f87143030d27c17b6b7a67f2262f06";
+const WORLD_ID_ACTION = "ai-interview-verify";
 
 /* ═══ LANGUAGES ═══ */
 const LANGS = [
@@ -228,6 +233,11 @@ function App(){
   const [lang,setLang]=useState("vi");
   const [compEmail,setCompEmail]=useState("");
 
+  /* World ID Verification */
+  const [worldVerified,setWorldVerified]=useState(false);
+  const [worldNullifier,setWorldNullifier]=useState("");
+  const [worldVerifying,setWorldVerifying]=useState(false);
+
   /* Resume */
   const [rFile,setRF]=useState(null),[rPrev,setRP]=useState(null),[rTxt,setRT]=useState(""),[rB64,setRB]=useState(null),[rMT,setRMT]=useState(null),[rMode,setRM]=useState("none");
   const fRef=useRef(null);
@@ -351,6 +361,43 @@ JSON形式のみで回答：
     const ql=qList||fullQs;
     const t=ql[i]?.q;if(!t)return;
     setSpk(true);await tts(t);setSpk(false);
+  };
+
+  /* ═══ WORLD ID VERIFICATION ═══ */
+  const verifyWorldID=async()=>{
+    if(!nm.trim()){alert("先に候補者名を入力してください / Please enter candidate name first");return;}
+    if(typeof IDKit==="undefined"){alert("World ID SDK not loaded. Please refresh the page.");return;}
+    setWorldVerifying(true);
+    try{
+      const result = await new Promise((resolve, reject) => {
+        IDKit.init({
+          app_id: WORLD_ID_APP_ID,
+          action: WORLD_ID_ACTION,
+          signal: nm.trim(),
+          verification_level: "device",
+          handleVerify: (proof) => {
+            console.log("World ID proof:", proof);
+            resolve(proof);
+          },
+          onSuccess: (result) => {
+            console.log("World ID success:", result);
+            resolve(result);
+          },
+          onError: (error) => {
+            console.error("World ID error:", error);
+            reject(error);
+          }
+        });
+        IDKit.open();
+      });
+      setWorldVerified(true);
+      setWorldNullifier(result.nullifier_hash || result.merkle_root || "verified");
+      setWorldVerifying(false);
+    }catch(e){
+      console.error("Verification failed:",e);
+      setWorldVerifying(false);
+      alert("認証に失敗しました / Verification failed: "+(e.message||"Unknown error"));
+    }
   };
 
   const begin=()=>{
@@ -651,14 +698,63 @@ JSON形式のみで回答:
         </div>
 
         {/* 応募職種 */}
-        <div style={{...cd,marginBottom:24,animation:"fadeUp .6s .2s both"}}>
+        <div style={{...cd,marginBottom:14,animation:"fadeUp .6s .2s both"}}>
           <label style={lb}>応募職種</label>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {POS.map(p=>{const s=pos===p.id;return<button key={p.id} onClick={()=>setPos(p.id)} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:12,border:`1px solid ${s?C.ac+"55":C.bd}`,background:s?C.ad:"transparent",color:s?C.tx:C.tm,cursor:"pointer",fontFamily:"inherit",fontSize:14,fontWeight:500,textAlign:"left"}}><span style={{fontSize:22,width:32,textAlign:"center"}}>{p.icon}</span><span>{p.label}</span></button>})}
           </div>
         </div>
 
-        <button onClick={begin} disabled={!pos||!nm.trim()||cvLoading} style={{...pbtn(pos&&nm.trim()&&!cvLoading),animation:"fadeUp .6s .3s both"}}>🎙️ 面接を開始する（録音開始）</button>
+        {/* 🌍 World ID Verification */}
+        <div style={{...cd,marginBottom:24,animation:"fadeUp .6s .25s both",background:worldVerified?"rgba(52,211,153,.06)":"rgba(99,102,241,.06)",border:`1px solid ${worldVerified?C.gn+"33":"rgba(99,102,241,.3)"}`}}>
+          <label style={{...lb,display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:16}}>🌍</span>
+            <span>World ID 本人確認 / Human Verification</span>
+          </label>
+          {!worldVerified?(
+            <div>
+              <p style={{fontSize:12,color:C.td,marginBottom:12,lineHeight:1.6}}>
+                AI面接を始める前に、World IDで「実在の人間」であることを証明してください。<br/>
+                <span style={{color:"rgba(255,255,255,.5)",fontSize:11}}>Please verify you are a real human (not a bot or deepfake) before the AI interview.</span>
+              </p>
+              <button onClick={verifyWorldID} disabled={!nm.trim()||worldVerifying} style={{
+                width:"100%",padding:"12px 16px",borderRadius:10,
+                border:"none",
+                background:nm.trim()&&!worldVerifying?"linear-gradient(135deg,#6366f1,#8b5cf6)":"rgba(255,255,255,.05)",
+                color:nm.trim()&&!worldVerifying?"#fff":"rgba(255,255,255,.3)",
+                fontSize:14,fontWeight:600,
+                cursor:nm.trim()&&!worldVerifying?"pointer":"not-allowed",
+                fontFamily:"inherit",
+                display:"flex",alignItems:"center",justifyContent:"center",gap:8
+              }}>
+                {worldVerifying?(
+                  <>
+                    <div style={{width:14,height:14,border:"2px solid transparent",borderTop:"2px solid #fff",borderRadius:"50%",animation:"spin 1s linear infinite"}}/>
+                    <span>認証中... / Verifying...</span>
+                  </>
+                ):(
+                  <>
+                    <span>🌍</span>
+                    <span>World IDで本人確認 / Verify with World ID</span>
+                  </>
+                )}
+              </button>
+              {!nm.trim()&&<p style={{fontSize:11,color:C.am,marginTop:8,textAlign:"center"}}>⚠ 先に候補者名を入力してください</p>}
+            </div>
+          ):(
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,background:"rgba(52,211,153,.1)",border:`1px solid ${C.gn}33`}}>
+              <div style={{fontSize:24}}>✅</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:C.gn,marginBottom:2}}>Verified Human ✓</div>
+                <div style={{fontSize:11,color:C.td}}>本人確認完了 / Human verification successful</div>
+              </div>
+              <div style={{fontSize:10,color:C.td,padding:"4px 8px",borderRadius:6,background:"rgba(255,255,255,.05)"}}>World ID</div>
+            </div>
+          )}
+        </div>
+
+        <button onClick={begin} disabled={!pos||!nm.trim()||cvLoading||!worldVerified} style={{...pbtn(pos&&nm.trim()&&!cvLoading&&worldVerified),animation:"fadeUp .6s .3s both"}}>🎙️ 面接を開始する（録音開始）</button>
+        {!worldVerified&&pos&&nm.trim()&&<p style={{textAlign:"center",color:C.am,fontSize:12,marginTop:8}}>⚠ 先にWorld IDで本人確認してください / Please verify with World ID first</p>}
         {cvLoading&&<p style={{textAlign:"center",color:C.am,fontSize:12,marginTop:8}}>⏳ 履歴書分析中です。少々お待ちください...</p>}
         {!stt.ok&&<p style={{textAlign:"center",color:C.am,fontSize:12,marginTop:12}}>⚠ 音声認識非対応。テキスト入力で回答できます。</p>}
         <p style={{textAlign:"center",color:C.td,fontSize:11,marginTop:10,lineHeight:1.5}}>※ マイクのアクセス許可が必要です。「許可」を押してください。<br/>※ 面接全体が録音されます。</p>
@@ -744,6 +840,11 @@ JSON形式のみで回答:
               <div><div style={{fontSize:11,color:C.td,marginBottom:2}}>総合</div><div style={{fontSize:22,fontWeight:700}}>{ev.overall}/5</div></div>
               <div><div style={{fontSize:11,color:C.td,marginBottom:2}}>日本語</div><div style={{fontSize:22,fontWeight:700,color:C.ac}}>{ev.japanese_level}</div></div>
             </div>
+            {worldVerified&&<div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${C.bd}`,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              <span style={{fontSize:18}}>🌍</span>
+              <span style={{fontSize:12,fontWeight:600,color:C.gn}}>✓ Verified Human by World ID</span>
+              <span style={{fontSize:10,color:C.td,padding:"2px 6px",borderRadius:4,background:"rgba(255,255,255,.05)"}}>本人確認済</span>
+            </div>}
           </div>
 
           {/* 評価項目 */}
